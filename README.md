@@ -15,6 +15,16 @@ BillDesk is a complete desktop and mobile workspace designed for industrial and 
 
 ---
 
+## 📥 Download & Install (Android)
+
+You don't need to be a developer to try BillDesk! You can install the app directly on your Android phone:
+
+1. Go to the [Latest Release Page](https://github.com/PtlLuv27/billdesk-app/releases/latest).
+2. Scroll down to the **Assets** section and download the `app-release.apk` file.
+3. Open the file on your Android device to install it. *(Note: You may need to allow "Install apps from unknown sources" in your phone's settings).*
+
+---
+
 ## ✨ Key Features
 
 * 🏢 **Multi-Company Architecture:** Manage multiple businesses from a single app, with individual datasets and configurations.
