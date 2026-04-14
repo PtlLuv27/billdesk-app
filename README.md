@@ -32,7 +32,7 @@ BillDesk is a complete desktop and mobile workspace designed for industrial and 
 
 | Global Dashboard | Visual Analytics | Editable Invoice | Bill Generation |
 | :---: | :---: | :---: | :---: |
-| <img src="https://placehold.co/200x400?text=Dashboard" width="200"/> | <img src="https://placehold.co/200x400?text=Analytics" width="200"/> | <img src="https://placehold.co/200x400?text=Edit+Invoice" width="200"/> | <img src="https://placehold.co/200x400?text=PDF" width="200"/> |
+| <img src="assets/images/BillDesk_GlobalDashboard.jpg" width="200"/> | <img src="assets/images/BillDesk_VisulaAnalytics.jpg" width="200"/> | <img src="assets/images/BillDesk_EditableInvoice.jpg" width="200"/> | <img src="assets/images/BillDesk_BillGenerated.jpg" width="200"/> |
 
 ---
 
