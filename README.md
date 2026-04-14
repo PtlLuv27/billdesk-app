@@ -15,6 +15,16 @@ BillDesk is a complete desktop and mobile workspace designed for industrial and 
 
 ---
 
+## 📥 Download & Install (Android)
+
+You don't need to be a developer to try BillDesk! You can install the app directly on your Android phone:
+
+1. Go to the [Latest Release Page](https://github.com/PtlLuv27/billdesk-app/releases/latest).
+2. Scroll down to the **Assets** section and download the `app-release.apk` file.
+3. Open the file on your Android device to install it. *(Note: You may need to allow "Install apps from unknown sources" in your phone's settings).*
+
+---
+
 ## ✨ Key Features
 
 * 🏢 **Multi-Company Architecture:** Manage multiple businesses from a single app, with individual datasets and configurations.
@@ -32,7 +42,7 @@ BillDesk is a complete desktop and mobile workspace designed for industrial and 
 
 | Global Dashboard | Visual Analytics | Editable Invoice | Bill Generation |
 | :---: | :---: | :---: | :---: |
-| <img src="https://placehold.co/200x400?text=Dashboard" width="200"/> | <img src="https://placehold.co/200x400?text=Analytics" width="200"/> | <img src="https://placehold.co/200x400?text=Edit+Invoice" width="200"/> | <img src="https://placehold.co/200x400?text=PDF" width="200"/> |
+| <img src="assets/images/BillDesk_GlobalDashboard.jpg" width="200"/> | <img src="assets/images/BillDesk_VisulaAnalytics.jpg" width="200"/> | <img src="assets/images/BillDesk_EditableInvoice.jpg" width="200"/> | <img src="assets/images/BillDesk_BillGenerated.jpg" width="200"/> |
 
 ---
 
