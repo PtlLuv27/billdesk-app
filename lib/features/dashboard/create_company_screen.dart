@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../models/company_model.dart';
 import '../company_workspace/providers/company_provider.dart';
+import 'package:flutter/services.dart';
 
 class CreateCompanyScreen extends ConsumerStatefulWidget {
   const CreateCompanyScreen({super.key});
@@ -16,7 +17,8 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
   
   // Text Controllers to capture input
   final _nameController = TextEditingController();
-  final _pinController = TextEditingController(); // <-- ADDED PIN CONTROLLER
+  final _pinController = TextEditingController(); 
+  final _gstinController = TextEditingController(); 
   final _address1Controller = TextEditingController();
   final _address2Controller = TextEditingController();
   final _mobileController = TextEditingController();
@@ -26,9 +28,9 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
 
   @override
   void dispose() {
-    // Always dispose controllers to prevent memory leaks
     _nameController.dispose();
-    _pinController.dispose(); // <-- DISPOSE PIN
+    _pinController.dispose(); 
+    _gstinController.dispose(); 
     _address1Controller.dispose();
     _address2Controller.dispose();
     _mobileController.dispose();
@@ -38,7 +40,6 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
     super.dispose();
   }
 
-  // 1. ADD 'async' HERE
   void _saveCompany() async {
     if (_formKey.currentState!.validate()) {
       final uuid = const Uuid().v4();
@@ -48,6 +49,7 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
         id: uuid,
         name: _nameController.text.trim(),
         pin: _pinController.text.trim(),
+        gstin: _gstinController.text.trim(),
         address1: _address1Controller.text.trim(),
         address2: _address2Controller.text.trim(),
         mobileNumber: _mobileController.text.trim(),
@@ -57,10 +59,8 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
         lastUpdated: currentTimestamp,
       );
 
-      // 2. ADD 'await' HERE so it waits for the database to finish
       await ref.read(companyProvider.notifier).addCompany(newCompany);
 
-      // 3. CHECK 'mounted' before showing the snackbar and popping
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${newCompany.name} created successfully!')),
@@ -68,6 +68,54 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
         Navigator.pop(context);
       }
     }
+  }
+
+  // --- SMART KEYBOARD FIELD HELPER ---
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    bool isNumber = false,
+    bool obscureText = false,
+    int? maxLength,
+    TextCapitalization textCapitalization = TextCapitalization.none,
+    String? Function(String?)? validator,
+    bool isLast = false,
+  }) {
+    return Focus(
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            FocusScope.of(context).nextFocus();
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            FocusScope.of(context).previousFocus();
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: TextFormField(
+        controller: controller,
+        obscureText: obscureText,
+        keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+        maxLength: maxLength,
+        textCapitalization: textCapitalization,
+        textInputAction: isLast ? TextInputAction.done : TextInputAction.next,
+        onFieldSubmitted: (_) {
+          if (isLast) {
+            _saveCompany(); // Auto-save if Enter is pressed on the last field
+          } else {
+            FocusScope.of(context).nextFocus();
+          }
+        },
+        decoration: InputDecoration(
+          labelText: label, 
+          border: const OutlineInputBorder(),
+          counterText: "", // Hides the character counter below maxLength fields
+        ),
+        validator: validator,
+      ),
+    );
   }
 
   @override
@@ -83,20 +131,20 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
           children: [
             const Text('Company Details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
-            TextFormField(
+            
+            _buildTextField(
               controller: _nameController,
-              decoration: const InputDecoration(labelText: 'Company Name', border: OutlineInputBorder()),
+              label: 'Company Name',
               validator: (value) => value == null || value.isEmpty ? 'Please enter a company name' : null,
             ),
             const SizedBox(height: 10),
             
-            // --- NEW: SECURITY PIN FIELD ---
-            TextFormField(
+            _buildTextField(
               controller: _pinController,
-              obscureText: true, // Hides the numbers
-              keyboardType: TextInputType.number,
+              label: 'Security PIN (4-8 Digits)',
+              obscureText: true,
+              isNumber: true,
               maxLength: 8,
-              decoration: const InputDecoration(labelText: 'Security PIN (4-8 Digits)', border: OutlineInputBorder()),
               validator: (v) {
                 if (v == null || v.trim().length < 4 || v.trim().length > 8) {
                   return 'PIN must be between 4 and 8 digits';
@@ -106,39 +154,52 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
             ),
             const SizedBox(height: 10),
 
-            TextFormField(
+            _buildTextField(
+              controller: _gstinController,
+              label: 'Company GSTIN',
+              textCapitalization: TextCapitalization.characters,
+            ),
+            const SizedBox(height: 10),
+
+            _buildTextField(
               controller: _mobileController,
-              decoration: const InputDecoration(labelText: 'Mobile Number', border: OutlineInputBorder()),
-              keyboardType: TextInputType.phone,
+              label: 'Mobile Number',
+              isNumber: true,
             ),
             const SizedBox(height: 10),
-            TextFormField(
+            
+            _buildTextField(
               controller: _address1Controller,
-              decoration: const InputDecoration(labelText: 'Address Line 1', border: OutlineInputBorder()),
+              label: 'Address Line 1',
             ),
             const SizedBox(height: 10),
-            TextFormField(
+            
+            _buildTextField(
               controller: _address2Controller,
-              decoration: const InputDecoration(labelText: 'Address Line 2 (City/State/Zip)', border: OutlineInputBorder()),
+              label: 'Address Line 2 (City/State/Zip)',
             ),
             
             const SizedBox(height: 24),
             const Text('Bank Details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
-            TextFormField(
+            
+            _buildTextField(
               controller: _bankNameController,
-              decoration: const InputDecoration(labelText: 'Bank Name', border: OutlineInputBorder()),
+              label: 'Bank Name',
             ),
             const SizedBox(height: 10),
-            TextFormField(
+            
+            _buildTextField(
               controller: _accountController,
-              decoration: const InputDecoration(labelText: 'Account Number', border: OutlineInputBorder()),
-              keyboardType: TextInputType.number,
+              label: 'Account Number',
+              isNumber: true,
             ),
             const SizedBox(height: 10),
-            TextFormField(
+            
+            _buildTextField(
               controller: _ifscController,
-              decoration: const InputDecoration(labelText: 'IFSC Code', border: OutlineInputBorder()),
+              label: 'IFSC Code',
+              isLast: true, // This is the last field, pressing enter will trigger save!
             ),
             
             const SizedBox(height: 30),

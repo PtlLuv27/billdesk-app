@@ -7,7 +7,8 @@ class Company {
   final String bankName;
   final String accountNumber;
   final String ifscCode;
-  final String pin; // <-- 1. ADD THIS
+  final String pin; 
+  final String gstin; // <-- 1. ADDED GSTIN
   final int lastUpdated;
   final int isDeleted;
 
@@ -20,7 +21,8 @@ class Company {
     required this.bankName,
     required this.accountNumber,
     required this.ifscCode,
-    required this.pin, // <-- 2. ADD THIS
+    required this.pin, 
+    required this.gstin, // <-- 2. ADDED GSTIN
     required this.lastUpdated,
     this.isDeleted = 0,
   });
@@ -30,7 +32,8 @@ class Company {
       'id': id, 'name': name, 'address1': address1, 'address2': address2,
       'mobileNumber': mobileNumber, 'bankName': bankName, 'accountNumber': accountNumber,
       'ifscCode': ifscCode, 
-      'pin': pin, // <-- 3. ADD THIS
+      'pin': pin, 
+      'gstin': gstin, // <-- 3. ADDED GSTIN
       'lastUpdated': lastUpdated, 'isDeleted': isDeleted,
     };
   }
@@ -40,7 +43,8 @@ class Company {
       id: map['id'], name: map['name'], address1: map['address1'], address2: map['address2'],
       mobileNumber: map['mobileNumber'], bankName: map['bankName'], accountNumber: map['accountNumber'],
       ifscCode: map['ifscCode'], 
-      pin: map['pin'] ?? '0000', // <-- 4. ADD THIS (Default fallback for old DBs)
+      pin: map['pin'] ?? '0000', 
+      gstin: map['gstin'] ?? '', // <-- 4. ADDED GSTIN (Fallback to empty string for old DBs)
       lastUpdated: map['lastUpdated'], isDeleted: map['isDeleted'],
     );
   }

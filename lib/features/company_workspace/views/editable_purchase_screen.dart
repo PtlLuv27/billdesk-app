@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // <-- 1. ADDED FOR KEYBOARD NAVIGATION
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:printing/printing.dart';
 import '../../../../models/invoice_model.dart';
@@ -6,6 +7,7 @@ import '../../../../models/company_model.dart';
 import '../../../../models/purchaser_model.dart';
 import '../providers/purchaser_provider.dart';
 import '../providers/invoice_provider.dart';
+import '../providers/company_provider.dart'; 
 import '../../../../core/utils/pdf_generator.dart';
 
 class EditablePurchaseScreen extends ConsumerStatefulWidget {
@@ -20,11 +22,18 @@ class EditablePurchaseScreen extends ConsumerStatefulWidget {
 }
 
 class _EditablePurchaseScreenState extends ConsumerState<EditablePurchaseScreen> {
+  // Vendor Controllers
   late TextEditingController _vendorNameCtrl;
   late TextEditingController _gstinCtrl;
   late TextEditingController _billNoCtrl;
   late TextEditingController _amountCtrl;
   late TextEditingController _gstPercentCtrl;
+
+  // Company Controllers
+  late TextEditingController _compGstinCtrl;
+  late TextEditingController _compBankCtrl;
+  late TextEditingController _compAccCtrl;
+  late TextEditingController _compIfscCtrl;
 
   late double _calculatedGstRupees;
   late double _totalAmount;
@@ -45,6 +54,28 @@ class _EditablePurchaseScreenState extends ConsumerState<EditablePurchaseScreen>
 
     _calculatedGstRupees = widget.invoice.gstAmount;
     _totalAmount = widget.invoice.totalAmount;
+
+    // Initialize Company Controllers
+    _compGstinCtrl = TextEditingController(text: widget.company.gstin);
+    _compBankCtrl = TextEditingController(text: widget.company.bankName);
+    _compAccCtrl = TextEditingController(text: widget.company.accountNumber);
+    _compIfscCtrl = TextEditingController(text: widget.company.ifscCode);
+  }
+
+  @override
+  void dispose() {
+    _vendorNameCtrl.dispose();
+    _gstinCtrl.dispose();
+    _billNoCtrl.dispose();
+    _amountCtrl.dispose();
+    _gstPercentCtrl.dispose();
+    
+    // Dispose Company Controllers
+    _compGstinCtrl.dispose();
+    _compBankCtrl.dispose();
+    _compAccCtrl.dispose();
+    _compIfscCtrl.dispose();
+    super.dispose();
   }
 
   void _recalculate() {
@@ -56,7 +87,7 @@ class _EditablePurchaseScreenState extends ConsumerState<EditablePurchaseScreen>
     });
   }
 
-  Future<void> _saveAllChanges() async {
+  Future<Map<String, dynamic>> _saveAllChanges() async {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
 
     final updatedPurchaser = Purchaser(
@@ -81,20 +112,60 @@ class _EditablePurchaseScreenState extends ConsumerState<EditablePurchaseScreen>
       lastUpdated: timestamp, isDeleted: widget.invoice.isDeleted,
     );
 
+    final updatedCompany = Company(
+      id: widget.company.id,
+      name: widget.company.name,
+      address1: widget.company.address1,
+      address2: widget.company.address2,
+      mobileNumber: widget.company.mobileNumber,
+      pin: widget.company.pin,
+      gstin: _compGstinCtrl.text.trim(),
+      bankName: _compBankCtrl.text.trim(),
+      accountNumber: _compAccCtrl.text.trim(),
+      ifscCode: _compIfscCtrl.text.trim(),
+      lastUpdated: timestamp,
+      isDeleted: widget.company.isDeleted,
+    );
+
     await ref.read(purchaserProvider.notifier).updatePurchaser(updatedPurchaser);
     await ref.read(invoiceProvider.notifier).updateInvoice(updatedInvoice);
+    await ref.read(companyProvider.notifier).updateCompany(updatedCompany); 
     
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Purchase Bill Updated!')));
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Changes Saved!')));
+
+    return {
+      'invoice': updatedInvoice,
+      'company': updatedCompany,
+      'purchaser': updatedPurchaser,
+    };
   }
 
+  // --- 2. UPGRADED CELL WITH KEYBOARD NAVIGATION ---
   Widget _cell(TextEditingController ctrl, {bool isNum = false, TextAlign align = TextAlign.left, FontWeight fw = FontWeight.normal}) {
-    return TextFormField(
-      controller: ctrl,
-      textAlign: align,
-      keyboardType: isNum ? TextInputType.number : TextInputType.text,
-      decoration: const InputDecoration(border: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero),
-      onChanged: (_) => _recalculate(),
-      style: TextStyle(fontWeight: fw, fontSize: 14),
+    return Focus(
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            FocusScope.of(context).nextFocus();
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            FocusScope.of(context).previousFocus();
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: TextFormField(
+        controller: ctrl,
+        textAlign: align,
+        keyboardType: isNum ? TextInputType.number : TextInputType.text,
+        textCapitalization: TextCapitalization.characters, 
+        textInputAction: TextInputAction.next, // Allows hitting Enter to jump
+        onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
+        decoration: const InputDecoration(border: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero),
+        onChanged: (_) => _recalculate(),
+        style: TextStyle(fontWeight: fw, fontSize: 14),
+      ),
     );
   }
 
@@ -109,8 +180,12 @@ class _EditablePurchaseScreenState extends ConsumerState<EditablePurchaseScreen>
           IconButton(
             icon: const Icon(Icons.print),
             onPressed: () async {
-              await _saveAllChanges();
-              final pdfBytes = await PdfGenerator.generatePurchaseVoucher(widget.invoice, widget.company, widget.purchaser);
+              final updatedData = await _saveAllChanges();
+              final pdfBytes = await PdfGenerator.generatePurchaseVoucher(
+                updatedData['invoice'], 
+                updatedData['company'], 
+                updatedData['purchaser']
+              );
               await Printing.layoutPdf(onLayout: (format) async => pdfBytes, name: 'Purchase_${widget.invoice.billNo}.pdf');
             },
           )
@@ -137,8 +212,24 @@ class _EditablePurchaseScreenState extends ConsumerState<EditablePurchaseScreen>
                   ],
                 ),
               ),
-              const Divider(height: 0, thickness: 2, color: Colors.redAccent),
 
+              const Divider(height: 0, thickness: 2, color: Colors.redAccent),
+              Container(padding: const EdgeInsets.all(4), color: Colors.red.shade50, child: const Text('YOUR COMPANY DETAILS', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.red))),
+              const Divider(height: 0, thickness: 2, color: Colors.redAccent),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Table(
+                  columnWidths: const {0: FlexColumnWidth(3), 1: FlexColumnWidth(7)},
+                  children: [
+                    TableRow(children: [const Text('YOUR GSTIN:'), _cell(_compGstinCtrl)]),
+                    TableRow(children: [const Text('BANK NAME:'), _cell(_compBankCtrl)]),
+                    TableRow(children: [const Text('A/C NO:'), _cell(_compAccCtrl)]),
+                    TableRow(children: [const Text('IFSC CODE:'), _cell(_compIfscCtrl)]),
+                  ],
+                ),
+              ),
+
+              const Divider(height: 0, thickness: 2, color: Colors.redAccent),
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -157,11 +248,40 @@ class _EditablePurchaseScreenState extends ConsumerState<EditablePurchaseScreen>
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: Colors.redAccent, foregroundColor: Colors.white,
-        onPressed: _saveAllChanges,
-        icon: const Icon(Icons.save),
-        label: const Text('Save Changes'),
+      floatingActionButton: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'download_btn', 
+            backgroundColor: Colors.blueGrey, 
+            foregroundColor: Colors.white,
+            onPressed: () async {
+              final updatedData = await _saveAllChanges();
+              final pdfBytes = await PdfGenerator.generatePurchaseVoucher(
+                updatedData['invoice'], 
+                updatedData['company'], 
+                updatedData['purchaser']
+              );
+              await Printing.sharePdf(
+                bytes: pdfBytes, 
+                filename: 'Purchase_Bill_${widget.invoice.billNo}.pdf'
+              );
+            },
+            icon: const Icon(Icons.download_rounded),
+            label: const Text('Download PDF'),
+          ),
+          
+          const SizedBox(width: 16), 
+          
+          FloatingActionButton.extended(
+            heroTag: 'save_btn',
+            backgroundColor: Colors.redAccent, 
+            foregroundColor: Colors.white,
+            onPressed: _saveAllChanges,
+            icon: const Icon(Icons.save),
+            label: const Text('Save Changes'),
+          ),
+        ],
       ),
     );
   }

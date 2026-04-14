@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../models/purchaser_model.dart';
 import '../providers/purchaser_provider.dart';
+import 'package:flutter/services.dart'; // <-- Added for keyboard listening
 
 class EditPurchaserScreen extends ConsumerStatefulWidget {
   final Purchaser purchaser;
@@ -53,6 +54,46 @@ class _EditPurchaserScreenState extends ConsumerState<EditPurchaserScreen> {
     }
   }
 
+  // --- SMART KEYBOARD FIELD HELPER ---
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    bool isNumber = false,
+    TextCapitalization textCapitalization = TextCapitalization.none,
+    String? Function(String?)? validator,
+    bool isLast = false,
+  }) {
+    return Focus(
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            FocusScope.of(context).nextFocus();
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            FocusScope.of(context).previousFocus();
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: TextFormField(
+        controller: controller,
+        keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+        textCapitalization: textCapitalization,
+        textInputAction: isLast ? TextInputAction.done : TextInputAction.next,
+        onFieldSubmitted: (_) {
+          if (isLast) {
+            _savePurchaser();
+          } else {
+            FocusScope.of(context).nextFocus();
+          }
+        },
+        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+        validator: validator,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -62,29 +103,45 @@ class _EditPurchaserScreenState extends ConsumerState<EditPurchaserScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            TextFormField(controller: _nameCtrl, decoration: const InputDecoration(labelText: 'Purchaser Name', border: OutlineInputBorder()), validator: (v) => v!.isEmpty ? 'Required' : null),
+            _buildTextField(
+              controller: _nameCtrl, 
+              label: 'Purchaser Name', 
+              validator: (v) => v!.isEmpty ? 'Required' : null
+            ),
             const SizedBox(height: 10),
-            TextFormField(controller: _gstinCtrl, decoration: const InputDecoration(labelText: 'GSTIN', border: OutlineInputBorder())),
+            _buildTextField(
+              controller: _gstinCtrl, 
+              label: 'GSTIN', 
+              textCapitalization: TextCapitalization.characters
+            ),
             const SizedBox(height: 10),
-            TextFormField(controller: _add1Ctrl, decoration: const InputDecoration(labelText: 'Address 1', border: OutlineInputBorder())),
+            _buildTextField(controller: _add1Ctrl, label: 'Address 1'),
             const SizedBox(height: 10),
-            TextFormField(controller: _add2Ctrl, decoration: const InputDecoration(labelText: 'Address 2', border: OutlineInputBorder())),
+            _buildTextField(controller: _add2Ctrl, label: 'Address 2'),
             const SizedBox(height: 10),
-            TextFormField(controller: _partCtrl, decoration: const InputDecoration(labelText: 'Default Item', border: OutlineInputBorder())),
+            _buildTextField(
+              controller: _partCtrl, 
+              label: 'Default Item', 
+              textCapitalization: TextCapitalization.characters
+            ),
             const SizedBox(height: 10),
-            TextFormField(controller: _hsnCtrl, decoration: const InputDecoration(labelText: 'HSN No.', border: OutlineInputBorder())),
+            _buildTextField(controller: _hsnCtrl, label: 'HSN No.'),
             const SizedBox(height: 10),
             Row(
               children: [
-                Expanded(child: TextFormField(controller: _sgstCtrl, decoration: const InputDecoration(labelText: 'SGST %', border: OutlineInputBorder()), keyboardType: TextInputType.number)),
+                Expanded(child: _buildTextField(controller: _sgstCtrl, label: 'SGST %', isNumber: true)),
                 const SizedBox(width: 10),
-                Expanded(child: TextFormField(controller: _cgstCtrl, decoration: const InputDecoration(labelText: 'CGST %', border: OutlineInputBorder()), keyboardType: TextInputType.number)),
+                Expanded(child: _buildTextField(controller: _cgstCtrl, label: 'CGST %', isNumber: true)),
                 const SizedBox(width: 10),
-                Expanded(child: TextFormField(controller: _igstCtrl, decoration: const InputDecoration(labelText: 'IGST %', border: OutlineInputBorder()), keyboardType: TextInputType.number)),
+                Expanded(child: _buildTextField(controller: _igstCtrl, label: 'IGST %', isNumber: true, isLast: true)),
               ],
             ),
             const SizedBox(height: 30),
-            ElevatedButton(onPressed: _savePurchaser, child: const Text('Save Changes')),
+            ElevatedButton(
+              onPressed: _savePurchaser, 
+              style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+              child: const Text('Save Changes')
+            ),
           ],
         ),
       ),

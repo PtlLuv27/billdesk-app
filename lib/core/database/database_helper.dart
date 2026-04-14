@@ -37,6 +37,7 @@ class DatabaseHelper {
         address1 TEXT,
         address2 TEXT,
         mobileNumber TEXT,
+        gstin TEXT,
         bankName TEXT,
         accountNumber TEXT,
         ifscCode TEXT,

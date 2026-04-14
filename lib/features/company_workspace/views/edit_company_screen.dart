@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../models/company_model.dart';
 import '../providers/company_provider.dart';
+import 'package:flutter/services.dart'; // <-- Added for keyboard listening
 
 class EditCompanyScreen extends ConsumerStatefulWidget {
   final Company company;
@@ -13,7 +14,7 @@ class EditCompanyScreen extends ConsumerStatefulWidget {
 
 class _EditCompanyScreenState extends ConsumerState<EditCompanyScreen> {
   final _formKey = GlobalKey<FormState>();
-  late TextEditingController _nameCtrl, _add1Ctrl, _add2Ctrl, _mobCtrl, _bankCtrl, _accCtrl, _ifscCtrl, _pinCtrl;
+  late TextEditingController _nameCtrl, _add1Ctrl, _add2Ctrl, _mobCtrl, _bankCtrl, _accCtrl, _ifscCtrl, _pinCtrl, _gstinCtrl;
 
   @override
   void initState() {
@@ -25,7 +26,8 @@ class _EditCompanyScreenState extends ConsumerState<EditCompanyScreen> {
     _bankCtrl = TextEditingController(text: widget.company.bankName);
     _accCtrl = TextEditingController(text: widget.company.accountNumber);
     _ifscCtrl = TextEditingController(text: widget.company.ifscCode);
-    _pinCtrl = TextEditingController(text: widget.company.pin); // <-- Initialize PIN Controller
+    _pinCtrl = TextEditingController(text: widget.company.pin); 
+    _gstinCtrl = TextEditingController(text: widget.company.gstin);
   }
 
   @override
@@ -38,6 +40,7 @@ class _EditCompanyScreenState extends ConsumerState<EditCompanyScreen> {
     _accCtrl.dispose();
     _ifscCtrl.dispose();
     _pinCtrl.dispose();
+    _gstinCtrl.dispose();
     super.dispose();
   }
 
@@ -52,7 +55,8 @@ class _EditCompanyScreenState extends ConsumerState<EditCompanyScreen> {
         bankName: _bankCtrl.text.trim(),
         accountNumber: _accCtrl.text.trim(),
         ifscCode: _ifscCtrl.text.trim(),
-        pin: _pinCtrl.text.trim(), // <-- Save the PIN
+        pin: _pinCtrl.text.trim(), 
+        gstin: _gstinCtrl.text.trim(),
         lastUpdated: DateTime.now().millisecondsSinceEpoch,
         isDeleted: widget.company.isDeleted,
       );
@@ -67,6 +71,54 @@ class _EditCompanyScreenState extends ConsumerState<EditCompanyScreen> {
     }
   }
 
+  // --- SMART KEYBOARD FIELD HELPER ---
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    bool isNumber = false,
+    bool obscureText = false,
+    int? maxLength,
+    TextCapitalization textCapitalization = TextCapitalization.none,
+    String? Function(String?)? validator,
+    bool isLast = false,
+  }) {
+    return Focus(
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            FocusScope.of(context).nextFocus();
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            FocusScope.of(context).previousFocus();
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: TextFormField(
+        controller: controller,
+        obscureText: obscureText,
+        keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+        maxLength: maxLength,
+        textCapitalization: textCapitalization,
+        textInputAction: isLast ? TextInputAction.done : TextInputAction.next,
+        onFieldSubmitted: (_) {
+          if (isLast) {
+            _saveUpdates();
+          } else {
+            FocusScope.of(context).nextFocus();
+          }
+        },
+        decoration: InputDecoration(
+          labelText: label, 
+          border: const OutlineInputBorder(),
+          counterText: "", 
+        ),
+        validator: validator,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -78,20 +130,20 @@ class _EditCompanyScreenState extends ConsumerState<EditCompanyScreen> {
           children: [
             const Text('Master Details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
-            TextFormField(
+            
+            _buildTextField(
               controller: _nameCtrl, 
-              decoration: const InputDecoration(labelText: 'Company Name', border: OutlineInputBorder()), 
-              validator: (v) => v!.isEmpty ? 'Required' : null
+              label: 'Company Name', 
+              validator: (v) => v!.isEmpty ? 'Required' : null,
             ),
             const SizedBox(height: 10),
             
-            // --- NEW: SECURITY PIN FIELD ---
-            TextFormField(
+            _buildTextField(
               controller: _pinCtrl,
-              obscureText: true, // Hides the numbers for security
-              keyboardType: TextInputType.number,
+              label: 'Security PIN (4-8 Digits)',
+              obscureText: true,
+              isNumber: true,
               maxLength: 8,
-              decoration: const InputDecoration(labelText: 'Security PIN (4-8 Digits)', border: OutlineInputBorder()),
               validator: (v) {
                 if (v == null || v.trim().length < 4 || v.trim().length > 8) {
                   return 'PIN must be between 4 and 8 digits';
@@ -100,22 +152,29 @@ class _EditCompanyScreenState extends ConsumerState<EditCompanyScreen> {
               },
             ),
             const SizedBox(height: 10),
+
+            _buildTextField(
+              controller: _gstinCtrl,
+              label: 'Company GSTIN',
+              textCapitalization: TextCapitalization.characters,
+            ),
+            const SizedBox(height: 10),
             
-            TextFormField(controller: _mobCtrl, decoration: const InputDecoration(labelText: 'Mobile Number', border: OutlineInputBorder())),
+            _buildTextField(controller: _mobCtrl, label: 'Mobile Number', isNumber: true),
             const SizedBox(height: 10),
-            TextFormField(controller: _add1Ctrl, decoration: const InputDecoration(labelText: 'Address Line 1', border: OutlineInputBorder())),
+            _buildTextField(controller: _add1Ctrl, label: 'Address Line 1'),
             const SizedBox(height: 10),
-            TextFormField(controller: _add2Ctrl, decoration: const InputDecoration(labelText: 'Address Line 2', border: OutlineInputBorder())),
+            _buildTextField(controller: _add2Ctrl, label: 'Address Line 2'),
             
             const SizedBox(height: 24),
             const Text('Banking Info', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
             
-            TextFormField(controller: _bankCtrl, decoration: const InputDecoration(labelText: 'Bank Name', border: OutlineInputBorder())),
+            _buildTextField(controller: _bankCtrl, label: 'Bank Name'),
             const SizedBox(height: 10),
-            TextFormField(controller: _accCtrl, decoration: const InputDecoration(labelText: 'Account Number', border: OutlineInputBorder())),
+            _buildTextField(controller: _accCtrl, label: 'Account Number', isNumber: true),
             const SizedBox(height: 10),
-            TextFormField(controller: _ifscCtrl, decoration: const InputDecoration(labelText: 'IFSC Code', border: OutlineInputBorder())),
+            _buildTextField(controller: _ifscCtrl, label: 'IFSC Code', isLast: true), // Last field auto-saves
             
             const SizedBox(height: 30),
             ElevatedButton(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // <-- ADDED FOR KEYBOARD NAVIGATION
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:printing/printing.dart';
 import '../../../../models/invoice_model.dart';
@@ -34,7 +35,7 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
   late TextEditingController _licNoCtrl;
   late TextEditingController _rateCtrl;
   late TextEditingController _qtyCtrl;
-  late TextEditingController _nosCtrl; // <-- ADDED NOS CONTROLLER
+  late TextEditingController _nosCtrl; 
   late TextEditingController _labourCtrl;
 
   // --- PURCHASER CONTROLLERS ---
@@ -69,7 +70,7 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     _licNoCtrl = TextEditingController(text: widget.invoice.licNo);
     _rateCtrl = TextEditingController(text: widget.invoice.rate.toString());
     _qtyCtrl = TextEditingController(text: widget.invoice.quantity.toString());
-    _nosCtrl = TextEditingController(text: widget.invoice.nos.toString()); // <-- INIT NOS
+    _nosCtrl = TextEditingController(text: widget.invoice.nos.toString()); 
     _labourCtrl = TextEditingController(text: widget.invoice.labourCharge.toString());
 
     _purNameCtrl = TextEditingController(text: widget.purchaser.name);
@@ -101,7 +102,7 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     _licNoCtrl.dispose();
     _rateCtrl.dispose();
     _qtyCtrl.dispose();
-    _nosCtrl.dispose(); // <-- DISPOSE NOS
+    _nosCtrl.dispose(); 
     _labourCtrl.dispose();
     _purNameCtrl.dispose();
     _purAdd1Ctrl.dispose();
@@ -136,14 +137,15 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     });
   }
 
-  Future<void> _saveAllChanges() async {
+  // --- CHANGED TO RETURN UPDATED DATA FOR INSTANT PDF GENERATION ---
+  Future<Map<String, dynamic>> _saveAllChanges() async {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
 
     final updatedInvoice = Invoice(
       id: widget.invoice.id, companyId: widget.company.id, type: widget.invoice.type,
       purchaserId: widget.purchaser.id, billNo: _billNoCtrl.text.trim(), billDate: widget.invoice.billDate,
       truckNo: _truckNoCtrl.text.trim(), driverName: _driverNameCtrl.text.trim(), licNo: _licNoCtrl.text.trim(),
-      nos: int.tryParse(_nosCtrl.text) ?? 1, // <-- SAVE EDITED NOS
+      nos: int.tryParse(_nosCtrl.text) ?? 1, 
       unit: widget.invoice.unit, quantity: double.tryParse(_qtyCtrl.text) ?? 0.0,
       rate: double.tryParse(_rateCtrl.text) ?? 0.0, amount: _amount, labourCharge: double.tryParse(_labourCtrl.text) ?? 0.0,
       subTotal: _subTotal, gstAmount: _gstAmount, totalAmount: _totalAmount,
@@ -160,7 +162,7 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     final updatedCompany = Company(
       id: widget.company.id, name: _compNameCtrl.text.trim(), address1: widget.company.address1,
       address2: widget.company.address2, mobileNumber: widget.company.mobileNumber, bankName: _compBankCtrl.text.trim(),
-      accountNumber: _compAccCtrl.text.trim(), ifscCode: _compIfscCtrl.text.trim(), pin: widget.company.pin,
+      accountNumber: _compAccCtrl.text.trim(), ifscCode: _compIfscCtrl.text.trim(), pin: widget.company.pin, gstin: widget.company.gstin,
       lastUpdated: timestamp, isDeleted: widget.company.isDeleted,
     );
 
@@ -169,6 +171,12 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     await ref.read(companyProvider.notifier).updateCompany(updatedCompany);
     
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('All Updates Saved!')));
+    
+    return {
+      'invoice': updatedInvoice,
+      'company': updatedCompany,
+      'purchaser': updatedPurchaser,
+    };
   }
 
   // --- UI HELPERS ---
@@ -179,14 +187,31 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     );
   }
 
+  // --- UPGRADED CELL WITH KEYBOARD NAVIGATION ---
   Widget _editableCell(TextEditingController controller, {bool isNumber = false, TextAlign align = TextAlign.center, FontWeight weight = FontWeight.normal, double vPad = 6}) {
-    return TextFormField(
-      controller: controller,
-      textAlign: align,
-      keyboardType: isNumber ? TextInputType.number : TextInputType.text,
-      decoration: InputDecoration(border: InputBorder.none, isDense: true, contentPadding: EdgeInsets.symmetric(vertical: vPad, horizontal: 4)),
-      onChanged: (_) => _recalculate(),
-      style: TextStyle(fontWeight: weight, fontSize: 12),
+    return Focus(
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            FocusScope.of(context).nextFocus();
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            FocusScope.of(context).previousFocus();
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: TextFormField(
+        controller: controller,
+        textAlign: align,
+        keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+        textInputAction: TextInputAction.next, // Allows Enter key to jump
+        onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
+        decoration: InputDecoration(border: InputBorder.none, isDense: true, contentPadding: EdgeInsets.symmetric(vertical: vPad, horizontal: 4)),
+        onChanged: (_) => _recalculate(),
+        style: TextStyle(fontWeight: weight, fontSize: 12),
+      ),
     );
   }
 
@@ -204,8 +229,12 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
           IconButton(
             icon: const Icon(Icons.print),
             onPressed: () async {
-              await _saveAllChanges(); 
-              final pdfBytes = await PdfGenerator.generateInvoice(widget.invoice, widget.company, widget.purchaser);
+              final updatedData = await _saveAllChanges(); 
+              final pdfBytes = await PdfGenerator.generateInvoice(
+                updatedData['invoice'], 
+                updatedData['company'], 
+                updatedData['purchaser']
+              );
               await Printing.layoutPdf(onLayout: (format) async => pdfBytes, name: 'Invoice_${widget.invoice.billNo}.pdf');
             },
           )
@@ -246,7 +275,7 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
                     children: [
                       _editableCell(_particularsCtrl, weight: FontWeight.bold, align: TextAlign.left),
                       _editableCell(_hsnCtrl, weight: FontWeight.bold),
-                      _editableCell(_nosCtrl, isNumber: true, weight: FontWeight.bold), // <-- MADE EDITABLE
+                      _editableCell(_nosCtrl, isNumber: true, weight: FontWeight.bold),
                       _editableCell(_qtyCtrl, isNumber: true, weight: FontWeight.bold),
                       _editableCell(_rateCtrl, isNumber: true, weight: FontWeight.bold),
                       _tableCell(_amount.toStringAsFixed(0), isHeader: true),
@@ -332,13 +361,11 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Left Side matching exactly Particulars width (4.0 out of 11.5 = 40 flex)
                   Expanded(
                     flex: 40,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        // Driver and LIC inside the tight width
                         Table(
                           border: const TableBorder(right: BorderSide(width: 2), bottom: BorderSide(width: 2), horizontalInside: BorderSide(color: Colors.black), verticalInside: BorderSide(color: Colors.black)),
                           columnWidths: const {0: FlexColumnWidth(1.5), 1: FlexColumnWidth(2.5)},
@@ -348,9 +375,8 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
                           ]
                         ),
                         
-                        const SizedBox(height: 12), // Gap before Bank Details
+                        const SizedBox(height: 12),
                         
-                        // Bank Details connected perfectly to the left border
                         Container(
                           padding: const EdgeInsets.all(8),
                           decoration: const BoxDecoration(
@@ -370,12 +396,11 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
                       ],
                     )
                   ),
-                  // Empty Right Space balancing the grid
                   Expanded(flex: 75, child: const SizedBox()),
                 ],
               ),
               
-              // --- FULL WIDTH SIGNATURE ROW (Below Bank Details) ---
+              // --- FULL WIDTH SIGNATURE ROW ---
               Container(
                 height: 80,
                 padding: const EdgeInsets.only(right: 16, bottom: 8),
@@ -388,10 +413,41 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _saveAllChanges,
-        icon: const Icon(Icons.save),
-        label: const Text('Save Changes'),
+      // --- NEW DUAL BUTTON ROW ---
+      floatingActionButton: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'download_btn_sales', 
+            backgroundColor: Colors.blueGrey, 
+            foregroundColor: Colors.white,
+            onPressed: () async {
+              final updatedData = await _saveAllChanges(); 
+              final pdfBytes = await PdfGenerator.generateInvoice(
+                updatedData['invoice'], 
+                updatedData['company'], 
+                updatedData['purchaser']
+              );
+              await Printing.sharePdf(
+                bytes: pdfBytes, 
+                filename: 'Invoice_${widget.invoice.billNo}.pdf'
+              );
+            },
+            icon: const Icon(Icons.download_rounded),
+            label: const Text('Download PDF'),
+          ),
+          
+          const SizedBox(width: 16), 
+          
+          FloatingActionButton.extended(
+            heroTag: 'save_btn_sales',
+            backgroundColor: Colors.blueAccent, 
+            foregroundColor: Colors.white,
+            onPressed: _saveAllChanges,
+            icon: const Icon(Icons.save),
+            label: const Text('Save Changes'),
+          ),
+        ],
       ),
     );
   }

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../models/company_model.dart'; // Added to access the Company model
+import '../../models/company_model.dart';
 import '../company_workspace/providers/company_provider.dart';
 import 'create_company_screen.dart';
 import '../company_workspace/views/company_workspace_screen.dart';
@@ -14,70 +14,113 @@ class GlobalDashboardScreen extends ConsumerStatefulWidget {
 
 class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
 
-  // --- THE SECURE LOGIN DIALOGUE ---
+  // --- UPGRADED SECURE LOGIN DIALOGUE ---
   Future<void> _promptPinAndLogin(BuildContext context, Company company, WidgetRef ref) async {
     final pinCtrl = TextEditingController();
     String? errorText;
 
     await showDialog(
       context: context,
-      barrierDismissible: false, // Force them to enter pin or cancel
+      barrierDismissible: false,
+      barrierColor: Colors.black.withOpacity(0.6), // Darker backdrop
       builder: (context) => StatefulBuilder(
         builder: (context, setState) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: Column(
-              children: [
-                const Icon(Icons.lock, size: 40, color: Colors.blue),
-                const SizedBox(height: 10),
-                Text('Unlock ${company.name}', textAlign: TextAlign.center),
-              ],
-            ),
-            content: TextField(
-              controller: pinCtrl,
-              obscureText: true,
-              keyboardType: TextInputType.number,
-              maxLength: 8,
-              autofocus: true,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 24, letterSpacing: 8),
-              decoration: InputDecoration(
-                hintText: '****',
-                errorText: errorText,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            actionsAlignment: MainAxisAlignment.spaceEvenly,
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context), 
-                child: const Text('Cancel', style: TextStyle(color: Colors.grey))
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
-                onPressed: () {
-                  // Fallback to '0000' just in case a company was created before the PIN update
-                  final correctPin = company.pin.isEmpty ? '0000' : company.pin;
+          
+          // 1. EXTRACT LOGIC: We put the unlock math here so both the button AND the Enter key can use it!
+          void attemptUnlock() {
+            final correctPin = company.pin.isEmpty ? '0000' : company.pin;
+            if (pinCtrl.text == correctPin) {
+              Navigator.pop(context);
+              ref.read(activeCompanyProvider.notifier).setCompany(company);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const CompanyWorkspaceScreen()),
+              );
+            } else {
+              setState(() => errorText = 'Incorrect PIN');
+              pinCtrl.clear();
+            }
+          }
 
-                  if (pinCtrl.text == correctPin) {
-                    Navigator.pop(context); // Close dialog
-                    
-                    // 1. Set the active company in Riverpod
-                    ref.read(activeCompanyProvider.notifier).setCompany(company);
-                    
-                    // 2. Navigate to the Workspace
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const CompanyWorkspaceScreen()),
-                    );
-                  } else {
-                    setState(() => errorText = 'Incorrect PIN. Try again.');
-                    pinCtrl.clear();
-                  }
-                },
-                child: const Text('Unlock'),
+          return Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            elevation: 10,
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
               ),
-            ],
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Animated Lock Icon Background
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.blueAccent.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.lock_outline, size: 40, color: Colors.blueAccent),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Workspace Secured', style: TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  Text(company.name, textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 24),
+                  
+                  TextField(
+                    controller: pinCtrl,
+                    obscureText: true,
+                    keyboardType: TextInputType.number,
+                    maxLength: 8,
+                    autofocus: true,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 28, letterSpacing: 12, fontWeight: FontWeight.bold),
+                    textInputAction: TextInputAction.done, // 2. Tells the system this field submits the form
+                    onSubmitted: (_) => attemptUnlock(), // 3. Triggers the unlock when ENTER is pressed!
+                    decoration: InputDecoration(
+                      hintText: '••••',
+                      hintStyle: TextStyle(color: Colors.grey.shade300),
+                      errorText: errorText,
+                      errorStyle: const TextStyle(fontWeight: FontWeight.bold),
+                      filled: true,
+                      fillColor: Colors.grey.shade50,
+                      counterText: "", // Hides the max length counter
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Colors.blueAccent, width: 2)),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                          onPressed: () => Navigator.pop(context), 
+                          child: const Text('Cancel', style: TextStyle(color: Colors.grey, fontSize: 16, fontWeight: FontWeight.bold))
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blueAccent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            elevation: 0,
+                          ),
+                          onPressed: attemptUnlock, // 4. Uses the exact same logic
+                          child: const Text('Unlock', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           );
         },
       ),
@@ -86,52 +129,177 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // "Watch" the provider. The UI will auto-rebuild whenever the database changes.
     final companies = ref.watch(companyProvider);
 
     return Scaffold(
+      backgroundColor: Colors.grey.shade100, // Softer background
       appBar: AppBar(
-        title: const Text('BillDesk Dashboard'),
+        title: const Text('BillDesk Workspaces', style: TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.blueAccent,
+        foregroundColor: Colors.white,
       ),
       body: companies.isEmpty
-          ? const Center(
-              child: Text(
-                'No companies found.\nTap + to create your first company.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16),
-              ),
-            )
+          ? _buildEmptyState()
           : ListView.builder(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
               itemCount: companies.length,
               itemBuilder: (context, index) {
                 final company = companies[index];
-                return Card(
-                  elevation: 2,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    leading: const CircleAvatar(
-                      child: Icon(Icons.business),
-                    ),
-                    title: Text(company.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(company.bankName),
-                    trailing: const Icon(Icons.lock, size: 16, color: Colors.blueGrey), // Changed to a lock icon
-                    onTap: () => _promptPinAndLogin(context, company, ref), // Trigger secure login
-                  ),
+                
+                // --- STAGGERED ENTRANCE ANIMATION ---
+                return TweenAnimationBuilder<double>(
+                  duration: Duration(milliseconds: 400 + (index * 150)), // Staggers based on list position
+                  tween: Tween(begin: 0.0, end: 1.0),
+                  curve: Curves.easeOutQuart,
+                  builder: (context, value, child) {
+                    return Transform.translate(
+                      offset: Offset(0, 50 * (1 - value)), // Slides up
+                      child: Opacity(
+                        opacity: value.clamp(0.0, 1.0), // Fades in safely
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: _buildCompanyCard(context, company, ref),
                 );
               },
             ),
       floatingActionButton: FloatingActionButton.extended(
+        elevation: 4,
+        backgroundColor: Colors.blueAccent,
+        foregroundColor: Colors.white,
         onPressed: () {
-          // Push to the Create Company Screen
           Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const CreateCompanyScreen()),
           );
         },
-        icon: const Icon(Icons.add),
-        label: const Text('New Company'),
+        icon: const Icon(Icons.add_business_rounded),
+        label: const Text('New Company', style: TextStyle(fontWeight: FontWeight.bold)),
+      ),
+    );
+  }
+
+  // --- MODERN CARD UI ---
+  Widget _buildCompanyCard(BuildContext context, Company company, WidgetRef ref) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => _promptPinAndLogin(context, company, ref),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                // Modern Avatar
+                Container(
+                  height: 56,
+                  width: 56,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Colors.blueAccent, Colors.lightBlue],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.business_center_rounded, color: Colors.white, size: 28),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                
+                // Text Details
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        company.name,
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        company.gstin.isNotEmpty ? 'GST: ${company.gstin}' : 'Bank: ${company.bankName}',
+                        style: TextStyle(fontSize: 13, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                // Secure Indicator
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.lock_rounded, size: 14, color: Colors.green.shade700),
+                      const SizedBox(width: 4),
+                      Text('Secure', style: TextStyle(color: Colors.green.shade700, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                )
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- UPGRADED EMPTY STATE ---
+  Widget _buildEmptyState() {
+    return Center(
+      child: TweenAnimationBuilder<double>(
+        duration: const Duration(milliseconds: 800),
+        tween: Tween(begin: 0.0, end: 1.0),
+        curve: Curves.easeOutBack, // The bouncy curve!
+        builder: (context, value, child) {
+          return Transform.scale(
+            scale: value,
+            child: Opacity(
+              opacity: value.clamp(0.0, 1.0), // Clamps it so it never goes above 1.0!
+              child: child,
+            ),
+          );
+        },
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.business_rounded, size: 100, color: Colors.grey.shade300),
+            const SizedBox(height: 24),
+            const Text(
+              'No Workspaces Yet',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Tap the button below to register\nyour first company locally.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: Colors.grey.shade500, height: 1.4),
+            ),
+          ],
+        ),
       ),
     );
   }

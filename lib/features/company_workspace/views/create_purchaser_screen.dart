@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../models/purchaser_model.dart';
 import '../providers/purchaser_provider.dart';
+import 'package:flutter/services.dart'; // <-- Added for keyboard listening
 
 class CreatePurchaserScreen extends ConsumerStatefulWidget {
   const CreatePurchaserScreen({super.key});
@@ -63,6 +64,46 @@ class _CreatePurchaserScreenState extends ConsumerState<CreatePurchaserScreen> {
     }
   }
 
+  // --- SMART KEYBOARD FIELD HELPER ---
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    bool isNumber = false,
+    TextCapitalization textCapitalization = TextCapitalization.none,
+    String? Function(String?)? validator,
+    bool isLast = false,
+  }) {
+    return Focus(
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            FocusScope.of(context).nextFocus();
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            FocusScope.of(context).previousFocus();
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: TextFormField(
+        controller: controller,
+        keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+        textCapitalization: textCapitalization,
+        textInputAction: isLast ? TextInputAction.done : TextInputAction.next,
+        onFieldSubmitted: (_) {
+          if (isLast) {
+            _savePurchaser();
+          } else {
+            FocusScope.of(context).nextFocus();
+          }
+        },
+        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+        validator: validator,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -74,47 +115,56 @@ class _CreatePurchaserScreenState extends ConsumerState<CreatePurchaserScreen> {
           children: [
             const Text('Client/Vendor Details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
-            TextFormField(
+            
+            _buildTextField(
               controller: _nameController,
-              decoration: const InputDecoration(labelText: 'Purchaser Name', border: OutlineInputBorder()),
+              label: 'Purchaser Name',
               validator: (value) => value == null || value.isEmpty ? 'Required' : null,
             ),
             const SizedBox(height: 10),
-            TextFormField(
+            
+            _buildTextField(
               controller: _address1Controller,
-              decoration: const InputDecoration(labelText: 'Address Line 1', border: OutlineInputBorder()),
+              label: 'Address Line 1',
             ),
             const SizedBox(height: 10),
-            TextFormField(
+            
+            _buildTextField(
               controller: _address2Controller,
-              decoration: const InputDecoration(labelText: 'City/State', border: OutlineInputBorder()),
+              label: 'City/State',
             ),
             
             const SizedBox(height: 24),
             const Text('Billing & Tax Defaults', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
-            TextFormField(
+            
+            _buildTextField(
               controller: _gstinController,
-              decoration: const InputDecoration(labelText: 'GSTIN', border: OutlineInputBorder()),
+              label: 'GSTIN',
+              textCapitalization: TextCapitalization.characters,
             ),
             const SizedBox(height: 10),
-            TextFormField(
+            
+            _buildTextField(
               controller: _particularsController,
-              decoration: const InputDecoration(labelText: 'Default Item (e.g., NILGIRI WOODEN SIZE)', border: OutlineInputBorder()),
+              label: 'Default Item (e.g., NILGIRI WOODEN SIZE)',
+              textCapitalization: TextCapitalization.characters,
             ),
             const SizedBox(height: 10),
-            TextFormField(
+            
+            _buildTextField(
               controller: _hsnController,
-              decoration: const InputDecoration(labelText: 'HSN No.', border: OutlineInputBorder()),
+              label: 'HSN No.',
             ),
             const SizedBox(height: 10),
+            
             Row(
               children: [
-                Expanded(child: TextFormField(controller: _sgstController, decoration: const InputDecoration(labelText: 'SGST %', border: OutlineInputBorder()), keyboardType: TextInputType.number)),
+                Expanded(child: _buildTextField(controller: _sgstController, label: 'SGST %', isNumber: true)),
                 const SizedBox(width: 10),
-                Expanded(child: TextFormField(controller: _cgstController, decoration: const InputDecoration(labelText: 'CGST %', border: OutlineInputBorder()), keyboardType: TextInputType.number)),
+                Expanded(child: _buildTextField(controller: _cgstController, label: 'CGST %', isNumber: true)),
                 const SizedBox(width: 10),
-                Expanded(child: TextFormField(controller: _igstController, decoration: const InputDecoration(labelText: 'IGST %', border: OutlineInputBorder()), keyboardType: TextInputType.number)),
+                Expanded(child: _buildTextField(controller: _igstController, label: 'IGST %', isNumber: true, isLast: true)), // Last Field!
               ],
             ),
             
