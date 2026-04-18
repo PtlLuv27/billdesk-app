@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../models/purchaser_model.dart';
 import '../providers/purchaser_provider.dart';
-import 'package:flutter/services.dart'; // <-- Added for keyboard listening
+import 'package:flutter/services.dart'; 
 
 class EditPurchaserScreen extends ConsumerStatefulWidget {
   final Purchaser purchaser;
@@ -34,6 +34,7 @@ class _EditPurchaserScreenState extends ConsumerState<EditPurchaserScreen> {
     if (_formKey.currentState!.validate()) {
       final updatedPurchaser = Purchaser(
         id: widget.purchaser.id,
+        userId: widget.purchaser.userId, // <-- 1. ADDED USER ID HERE TO PRESERVE OWNERSHIP
         name: _nameCtrl.text.trim(),
         address1: _add1Ctrl.text.trim(),
         address2: _add2Ctrl.text.trim(),

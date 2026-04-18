@@ -1,5 +1,6 @@
 class Invoice {
   final String id;
+  final String userId;
   final String companyId;
   final String type; // "sales" or "purchase"
   final String? purchaserId; // Nullable if it's a quick purchase entry
@@ -18,10 +19,11 @@ class Invoice {
   final double gstAmount;
   final double totalAmount;
   final int lastUpdated;
-  final bool isDeleted;
+  final int isDeleted; // Changed to int to match SQLite and other models
 
   Invoice({
     required this.id,
+    required this.userId,
     required this.companyId,
     required this.type,
     this.purchaserId,
@@ -40,32 +42,33 @@ class Invoice {
     required this.gstAmount,
     required this.totalAmount,
     required this.lastUpdated,
-    this.isDeleted = false,
+    this.isDeleted = 0,
   });
 
   // Convert an Invoice into a Map to store in SQLite
   Map<String, dynamic> toMap() {
     return {
       'id': id,
-      'company_id': companyId,
+      'userId': userId,
+      'companyId': companyId,         // Updated to camelCase
       'type': type,
-      'purchaser_id': purchaserId,
-      'bill_no': billNo,
-      'bill_date': billDate,
-      'truck_no': truckNo,
-      'driver_name': driverName,
-      'lic_no': licNo,
+      'purchaserId': purchaserId,     // Updated to camelCase
+      'billNo': billNo,               // Updated to camelCase
+      'billDate': billDate,           // Updated to camelCase
+      'truckNo': truckNo,             // Updated to camelCase
+      'driverName': driverName,       // Updated to camelCase
+      'licNo': licNo,                 // Updated to camelCase
       'nos': nos,
       'unit': unit,
       'quantity': quantity,
       'rate': rate,
       'amount': amount,
-      'labour_charge': labourCharge,
-      'sub_total': subTotal,
-      'gst_amount': gstAmount,
-      'total_amount': totalAmount,
-      'last_updated': lastUpdated,
-      'is_deleted': isDeleted ? 1 : 0,
+      'labourCharge': labourCharge,   // Updated to camelCase
+      'subTotal': subTotal,           // Updated to camelCase
+      'gstAmount': gstAmount,         // Updated to camelCase
+      'totalAmount': totalAmount,     // Updated to camelCase
+      'lastUpdated': lastUpdated,     // Updated to camelCase
+      'isDeleted': isDeleted,         // Updated to camelCase
     };
   }
 
@@ -73,25 +76,26 @@ class Invoice {
   factory Invoice.fromMap(Map<String, dynamic> map) {
     return Invoice(
       id: map['id'],
-      companyId: map['company_id'],
+      companyId: map['companyId'],         // Updated
+      userId: map['userId'] ?? '',
       type: map['type'],
-      purchaserId: map['purchaser_id'],
-      billNo: map['bill_no'],
-      billDate: map['bill_date'],
-      truckNo: map['truck_no'] ?? '',
-      driverName: map['driver_name'] ?? '',
-      licNo: map['lic_no'] ?? '',
-      nos: map['nos'] ?? 0,
+      purchaserId: map['purchaserId'],     // Updated
+      billNo: map['billNo'],               // Updated
+      billDate: map['billDate'],           // Updated
+      truckNo: map['truckNo'] ?? '',       // Updated
+      driverName: map['driverName'] ?? '', // Updated
+      licNo: map['licNo'] ?? '',           // Updated
+      nos: map['nos'] ?? 1,
       unit: map['unit'] ?? '',
       quantity: map['quantity']?.toDouble() ?? 0.0,
       rate: map['rate']?.toDouble() ?? 0.0,
       amount: map['amount']?.toDouble() ?? 0.0,
-      labourCharge: map['labour_charge']?.toDouble() ?? 0.0,
-      subTotal: map['sub_total']?.toDouble() ?? 0.0,
-      gstAmount: map['gst_amount']?.toDouble() ?? 0.0,
-      totalAmount: map['total_amount']?.toDouble() ?? 0.0,
-      lastUpdated: map['last_updated'],
-      isDeleted: map['is_deleted'] == 1,
+      labourCharge: map['labourCharge']?.toDouble() ?? 0.0, // Updated
+      subTotal: map['subTotal']?.toDouble() ?? 0.0,         // Updated
+      gstAmount: map['gstAmount']?.toDouble() ?? 0.0,       // Updated
+      totalAmount: map['totalAmount']?.toDouble() ?? 0.0,   // Updated
+      lastUpdated: map['lastUpdated'],                      // Updated
+      isDeleted: map['isDeleted'] ?? 0,                     // Updated
     );
   }
 }

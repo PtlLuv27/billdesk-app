@@ -3,6 +3,7 @@ import 'package:path/path.dart';
 import '../../models/company_model.dart';
 import '../../models/purchaser_model.dart';
 import '../../models/invoice_model.dart';
+import '../../models/payment_model.dart'; // Ensure Payment model is imported
 
 class DatabaseHelper {
   // Singleton pattern
@@ -28,11 +29,23 @@ class DatabaseHelper {
     );
   }
 
-  Future _createDB(Database db, int version) async {
-    // 1. Company Table
+  Future<void> _createDB(Database db, int version) async {
+    // 1. Users Table
+    await db.execute('''
+      CREATE TABLE users (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        email TEXT UNIQUE,
+        passwordHash TEXT,
+        createdAt INTEGER
+      )
+    ''');
+
+    // 2. Company Table
     await db.execute('''
       CREATE TABLE companies(
         id TEXT PRIMARY KEY,
+        userId TEXT,
         name TEXT,
         address1 TEXT,
         address2 TEXT,
@@ -41,61 +54,63 @@ class DatabaseHelper {
         bankName TEXT,
         accountNumber TEXT,
         ifscCode TEXT,
-        pin TEXT,  -- <-- ADD THIS LINE
+        pin TEXT,
         lastUpdated INTEGER,
         isDeleted INTEGER
       )
     ''');
-    // 2. Purchaser Table (UPDATED FOR GLOBAL ACCESS)
+
+    // 3. Purchaser Table
     await db.execute('''
       CREATE TABLE purchasers (
         id TEXT PRIMARY KEY,
+        userId TEXT,
         name TEXT NOT NULL,
         address1 TEXT,
         address2 TEXT,
         particulars TEXT,
         gstin TEXT,
-        hsn_no TEXT,
-        sgst_rate REAL,
-        cgst_rate REAL,
-        igst_rate REAL,
-        last_updated INTEGER NOT NULL,
-        is_deleted INTEGER NOT NULL DEFAULT 0
+        hsnNo TEXT,
+        sgstRate REAL,
+        cgstRate REAL,
+        igstRate REAL,
+        lastUpdated INTEGER NOT NULL,
+        isDeleted INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
-    // 3. Invoice Table
+    // 4. Invoice Table
     await db.execute('''
       CREATE TABLE invoices (
         id TEXT PRIMARY KEY,
-        company_id TEXT NOT NULL,
+        userId TEXT,
+        companyId TEXT NOT NULL,
         type TEXT NOT NULL,
-        purchaser_id TEXT,
-        bill_no TEXT NOT NULL,
-        bill_date INTEGER NOT NULL,
-        truck_no TEXT,
-        driver_name TEXT,
-        lic_no TEXT,
+        purchaserId TEXT,
+        billNo TEXT NOT NULL,
+        billDate INTEGER NOT NULL,
+        truckNo TEXT,
+        driverName TEXT,
+        licNo TEXT,
         nos INTEGER,
         unit TEXT,
         quantity REAL,
         rate REAL,
         amount REAL,
-        labour_charge REAL,
-        sub_total REAL,
-        gst_amount REAL,
-        total_amount REAL,
-        last_updated INTEGER NOT NULL,
-        is_deleted INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (company_id) REFERENCES companies (id) ON DELETE CASCADE,
-        FOREIGN KEY (purchaser_id) REFERENCES purchasers (id) ON DELETE SET NULL
+        labourCharge REAL,
+        subTotal REAL,
+        gstAmount REAL,
+        totalAmount REAL,
+        lastUpdated INTEGER NOT NULL,
+        isDeleted INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
-    // 4. Payments Table (For future ledger module)
+    // 5. Payments Table
     await db.execute('''
       CREATE TABLE payments(
         id TEXT PRIMARY KEY,
+        userId TEXT,
         companyId TEXT,
         purchaserId TEXT,
         amount REAL,
@@ -106,24 +121,23 @@ class DatabaseHelper {
     ''');
   }
 
-  // --- CRUD OPERATIONS EXAMPLE (COMPANY) ---
+  // --- CRUD OPERATIONS (COMPANY) ---
 
   Future<void> insertCompany(Company company) async {
     final db = await instance.database;
     await db.insert(
       'companies',
       company.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace, // Critical for later cloud sync overwriting
+      conflictAlgorithm: ConflictAlgorithm.replace, 
     );
   }
 
-  Future<List<Company>> getAllActiveCompanies() async {
+  Future<List<Company>> getCompaniesByUser(String userId) async {
     final db = await instance.database;
-    // Only fetch companies that are NOT soft-deleted
     final maps = await db.query(
       'companies',
-      where: 'isDeleted = ?',
-      whereArgs: [0],
+      where: 'userId = ? AND isDeleted = ?',
+      whereArgs: [userId, 0],
     );
     return maps.map((map) => Company.fromMap(map)).toList();
   }
@@ -159,13 +173,12 @@ class DatabaseHelper {
     );
   }
 
-  // Fetch ALL purchasers for the master user, regardless of company
-  Future<List<Purchaser>> getAllActivePurchasers() async {
+  Future<List<Purchaser>> getPurchasersByUser(String userId) async {
     final db = await instance.database;
     final maps = await db.query(
       'purchasers',
-      where: 'is_deleted = ?',
-      whereArgs: [0], // 0 means false (not deleted)
+      where: 'userId = ? AND isDeleted = ?',
+      whereArgs: [userId, 0], 
     );
     return maps.map((map) => Purchaser.fromMap(map)).toList();
   }
@@ -181,14 +194,13 @@ class DatabaseHelper {
     );
   }
 
-  // Fetch invoices for the active company
   Future<List<Invoice>> getInvoicesByCompany(String companyId) async {
     final db = await instance.database;
     final maps = await db.query(
       'invoices',
-      where: 'company_id = ? AND is_deleted = ?',
+      where: 'companyId = ? AND isDeleted = ?',
       whereArgs: [companyId, 0],
-      orderBy: 'bill_date DESC', // Newest first
+      orderBy: 'billDate DESC', 
     );
     return maps.map((map) => Invoice.fromMap(map)).toList();
   }
@@ -207,15 +219,18 @@ class DatabaseHelper {
     final db = await instance.database;
     await db.delete('invoices', where: 'id = ?', whereArgs: [id]);
   }
+  
+  // --- CRUD OPERATIONS (PAYMENTS) ---
 
-  Future<int> insertPayment(Map<String, dynamic> payment) async {
+  Future<void> insertPayment(Payment payment) async {
     final db = await instance.database;
-    return await db.insert('payments', payment);
+    await db.insert('payments', payment.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  Future<List<Map<String, dynamic>>> getPayments(String companyId) async {
+  Future<List<Payment>> getPaymentsByCompany(String companyId) async {
     final db = await instance.database;
-    return await db.query('payments', where: 'companyId = ?', whereArgs: [companyId]);
+    final maps = await db.query('payments', where: 'companyId = ?', whereArgs: [companyId]);
+    return maps.map((map) => Payment.fromMap(map)).toList();
   }
 
   Future<int> deletePayment(String id) async {

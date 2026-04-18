@@ -1,4 +1,5 @@
 class Company {
+  final String userId;
   final String id;
   final String name;
   final String address1;
@@ -13,6 +14,7 @@ class Company {
   final int isDeleted;
 
   Company({
+    required this.userId,
     required this.id,
     required this.name,
     required this.address1,
@@ -29,7 +31,7 @@ class Company {
 
   Map<String, dynamic> toMap() {
     return {
-      'id': id, 'name': name, 'address1': address1, 'address2': address2,
+      'id': id, 'name': name, 'userId': userId, 'address1': address1, 'address2': address2,
       'mobileNumber': mobileNumber, 'bankName': bankName, 'accountNumber': accountNumber,
       'ifscCode': ifscCode, 
       'pin': pin, 
@@ -40,7 +42,7 @@ class Company {
 
   factory Company.fromMap(Map<String, dynamic> map) {
     return Company(
-      id: map['id'], name: map['name'], address1: map['address1'], address2: map['address2'],
+      id: map['id'], userId: map['userId'], name: map['name'], address1: map['address1'], address2: map['address2'],
       mobileNumber: map['mobileNumber'], bankName: map['bankName'], accountNumber: map['accountNumber'],
       ifscCode: map['ifscCode'], 
       pin: map['pin'] ?? '0000', 

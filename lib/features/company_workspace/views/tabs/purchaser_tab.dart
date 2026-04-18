@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../../../../models/purchaser_model.dart';
 import '../../providers/purchaser_provider.dart';
 import '../edit_purchaser_screen.dart';
+import '../../../authentication/providers/auth_provider.dart';
 
 class PurchaserTab extends ConsumerStatefulWidget {
   const PurchaserTab({super.key});
@@ -77,8 +78,14 @@ class _PurchaserTabState extends ConsumerState<PurchaserTab> {
                   style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
                   onPressed: () async {
                     if (formKey.currentState!.validate()) {
+                      
+                      // 2. GET THE LOGGED IN USER ID
+                      final currentUserId = ref.read(authProvider);
+                      if (currentUserId == null) return; // Failsafe
+
                       final newPurchaser = Purchaser(
                         id: const Uuid().v4(),
+                        userId: currentUserId, // <-- 3. ATTACH IT TO THE NEW PURCHASER
                         name: nameCtrl.text.trim(),
                         address1: add1Ctrl.text.trim(),
                         address2: add2Ctrl.text.trim(),
@@ -132,6 +139,53 @@ class _PurchaserTabState extends ConsumerState<PurchaserTab> {
                     title: Text(purchaser.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                     subtitle: Text('GST: ${purchaser.gstin.isEmpty ? "N/A" : purchaser.gstin}\n${purchaser.address1}'),
                     isThreeLine: true,
+
+                    onLongPress: () {
+                      showModalBottomSheet(
+                        context: context,
+                        builder: (ctx) => SafeArea(
+                          child: Wrap(
+                            children: [
+                              ListTile(
+                                leading: const Icon(Icons.edit, color: Colors.blue),
+                                title: const Text('Edit Party'),
+                                onTap: () {
+                                  Navigator.pop(ctx);
+                                  Navigator.push(context, MaterialPageRoute(builder: (context) => EditPurchaserScreen(purchaser: purchaser)));
+                                },
+                              ),
+                              const Divider(height: 1),
+                              ListTile(
+                                leading: const Icon(Icons.delete, color: Colors.red),
+                                title: const Text('Delete Party', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                                onTap: () {
+                                  Navigator.pop(ctx);
+                                  showDialog(
+                                    context: context,
+                                    builder: (dialogCtx) => AlertDialog(
+                                      title: const Text('Delete Party?'),
+                                      content: const Text('Are you sure you want to remove this party?'),
+                                      actions: [
+                                        TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
+                                        ElevatedButton(
+                                          style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                                          onPressed: () {
+                                            ref.read(purchaserProvider.notifier).deletePurchaser(purchaser);
+                                            Navigator.pop(dialogCtx);
+                                          },
+                                          child: const Text('Delete'),
+                                        )
+                                      ],
+                                    )
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+
                     trailing: IconButton(
                       icon: const Icon(Icons.edit, color: Colors.blue),
                       onPressed: () {

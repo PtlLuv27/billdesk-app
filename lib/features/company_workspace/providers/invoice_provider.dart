@@ -6,7 +6,6 @@ import 'company_provider.dart';
 class InvoiceNotifier extends Notifier<List<Invoice>> {
   @override
   List<Invoice> build() {
-    // Watch the active company
     final activeCompany = ref.watch(activeCompanyProvider);
     
     if (activeCompany != null) {
@@ -23,32 +22,21 @@ class InvoiceNotifier extends Notifier<List<Invoice>> {
 
   Future<void> addInvoice(Invoice newInvoice) async {
     await DatabaseHelper.instance.insertInvoice(newInvoice);
-    
-    // Refresh the list
     final activeCompany = ref.read(activeCompanyProvider);
-    if (activeCompany != null) {
-      await _loadInvoices(activeCompany.id);
-    }
+    if (activeCompany != null) await _loadInvoices(activeCompany.id);
   }
 
   Future<void> updateInvoice(Invoice updatedInvoice) async {
     await DatabaseHelper.instance.updateInvoice(updatedInvoice);
     final activeCompany = ref.read(activeCompanyProvider);
-    if (activeCompany != null) {
-      await _loadInvoices(activeCompany.id); // Refresh the UI
-    }
+    if (activeCompany != null) await _loadInvoices(activeCompany.id); 
   }
 
   Future<void> deleteInvoice(String id) async {
     await DatabaseHelper.instance.deleteInvoice(id);
     final activeCompany = ref.read(activeCompanyProvider);
-    if (activeCompany != null) {
-      await _loadInvoices(activeCompany.id); // Refresh the list
-    }
+    if (activeCompany != null) await _loadInvoices(activeCompany.id); 
   }
-
 }
 
-final invoiceProvider = NotifierProvider<InvoiceNotifier, List<Invoice>>(() {
-  return InvoiceNotifier();
-});
+final invoiceProvider = NotifierProvider<InvoiceNotifier, List<Invoice>>(InvoiceNotifier.new);

@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:local_auth/local_auth.dart'; 
 import '../../models/company_model.dart';
 import '../company_workspace/providers/company_provider.dart';
 import 'create_company_screen.dart';
 import '../company_workspace/views/company_workspace_screen.dart';
+import '../company_workspace/views/edit_company_screen.dart'; 
+import '../authentication/providers/auth_provider.dart';
+import '../authentication/views/auth_wrapper.dart';
 
 class GlobalDashboardScreen extends ConsumerStatefulWidget {
   const GlobalDashboardScreen({super.key});
@@ -13,20 +17,45 @@ class GlobalDashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
+  final LocalAuthentication auth = LocalAuthentication();
 
-  // --- UPGRADED SECURE LOGIN DIALOGUE ---
   Future<void> _promptPinAndLogin(BuildContext context, Company company, WidgetRef ref) async {
     final pinCtrl = TextEditingController();
     String? errorText;
 
+    bool canAuthenticateWithBiometrics = false;
+    try {
+      canAuthenticateWithBiometrics = await auth.canCheckBiometrics || await auth.isDeviceSupported();
+    } catch (e) {
+      debugPrint("Biometrics not supported or error: $e");
+    }
+
+    if (canAuthenticateWithBiometrics && context.mounted) {
+      try {
+        // --- FIX: Removed the 'options:' parameter causing the error ---
+        final bool didAuthenticate = await auth.authenticate(
+          localizedReason: 'Please authenticate to unlock ${company.name}',
+        );
+        
+        if (didAuthenticate) {
+          ref.read(activeCompanyProvider.notifier).setCompany(company);
+          Navigator.push(context, MaterialPageRoute(builder: (context) => const CompanyWorkspaceScreen()));
+          return; 
+        }
+      } catch (e) {
+        debugPrint("Biometric Error: $e");
+      }
+    }
+
+    if (!context.mounted) return;
+
     await showDialog(
       context: context,
       barrierDismissible: false,
-      barrierColor: Colors.black.withOpacity(0.6), // Darker backdrop
+      barrierColor: Colors.black.withOpacity(0.6), 
       builder: (context) => StatefulBuilder(
         builder: (context, setState) {
           
-          // 1. EXTRACT LOGIC: We put the unlock math here so both the button AND the Enter key can use it!
           void attemptUnlock() {
             final correctPin = company.pin.isEmpty ? '0000' : company.pin;
             if (pinCtrl.text == correctPin) {
@@ -54,7 +83,6 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Animated Lock Icon Background
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -77,8 +105,8 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
                     autofocus: true,
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 28, letterSpacing: 12, fontWeight: FontWeight.bold),
-                    textInputAction: TextInputAction.done, // 2. Tells the system this field submits the form
-                    onSubmitted: (_) => attemptUnlock(), // 3. Triggers the unlock when ENTER is pressed!
+                    textInputAction: TextInputAction.done, 
+                    onSubmitted: (_) => attemptUnlock(), 
                     decoration: InputDecoration(
                       hintText: '••••',
                       hintStyle: TextStyle(color: Colors.grey.shade300),
@@ -86,11 +114,35 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
                       errorStyle: const TextStyle(fontWeight: FontWeight.bold),
                       filled: true,
                       fillColor: Colors.grey.shade50,
-                      counterText: "", // Hides the max length counter
+                      counterText: "", 
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Colors.blueAccent, width: 2)),
                     ),
                   ),
+                  
+                  if (canAuthenticateWithBiometrics) ...[
+                    const SizedBox(height: 16),
+                    IconButton(
+                      icon: const Icon(Icons.fingerprint, size: 40, color: Colors.blueAccent),
+                      onPressed: () async {
+                        try {
+                          // --- FIX: Removed the 'options:' parameter here too ---
+                          final bool didAuthenticate = await auth.authenticate(
+                            localizedReason: 'Unlock ${company.name}',
+                          );
+                          if (didAuthenticate && context.mounted) {
+                            Navigator.pop(context);
+                            ref.read(activeCompanyProvider.notifier).setCompany(company);
+                            Navigator.push(context, MaterialPageRoute(builder: (context) => const CompanyWorkspaceScreen()));
+                          }
+                        } catch (e) {
+                          debugPrint("Retry Biometric Error: $e");
+                        }
+                      },
+                    ),
+                    const Text('Use Fingerprint', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+                  ],
+
                   const SizedBox(height: 24),
                   
                   Row(
@@ -112,7 +164,7 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             elevation: 0,
                           ),
-                          onPressed: attemptUnlock, // 4. Uses the exact same logic
+                          onPressed: attemptUnlock,
                           child: const Text('Unlock', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                         ),
                       ),
@@ -132,13 +184,30 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
     final companies = ref.watch(companyProvider);
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade100, // Softer background
+      backgroundColor: Colors.grey.shade100, 
       appBar: AppBar(
-        title: const Text('BillDesk Workspaces', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('Workspaces', style: TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.blueAccent,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout_rounded),
+            tooltip: 'Logout',
+            onPressed: () async {
+              await ref.read(authProvider.notifier).logout();
+              
+              if (context.mounted) {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AuthWrapper()),
+                  (route) => false,
+                );
+              }
+            },
+          )
+        ],
       ),
       body: companies.isEmpty
           ? _buildEmptyState()
@@ -148,16 +217,15 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
               itemBuilder: (context, index) {
                 final company = companies[index];
                 
-                // --- STAGGERED ENTRANCE ANIMATION ---
                 return TweenAnimationBuilder<double>(
-                  duration: Duration(milliseconds: 400 + (index * 150)), // Staggers based on list position
+                  duration: Duration(milliseconds: 400 + (index * 150)), 
                   tween: Tween(begin: 0.0, end: 1.0),
                   curve: Curves.easeOutQuart,
                   builder: (context, value, child) {
                     return Transform.translate(
-                      offset: Offset(0, 50 * (1 - value)), // Slides up
+                      offset: Offset(0, 50 * (1 - value)), 
                       child: Opacity(
-                        opacity: value.clamp(0.0, 1.0), // Fades in safely
+                        opacity: value.clamp(0.0, 1.0), 
                         child: child,
                       ),
                     );
@@ -182,7 +250,6 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
     );
   }
 
-  // --- MODERN CARD UI ---
   Widget _buildCompanyCard(BuildContext context, Company company, WidgetRef ref) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -202,11 +269,57 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
           onTap: () => _promptPinAndLogin(context, company, ref),
+          
+          onLongPress: () {
+            showModalBottomSheet(
+              context: context,
+              builder: (ctx) => SafeArea(
+                child: Wrap(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.edit, color: Colors.blue),
+                      title: const Text('Edit Workspace Settings'),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => EditCompanyScreen(company: company)));
+                      },
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.delete, color: Colors.red),
+                      title: const Text('Delete Workspace', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        showDialog(
+                          context: context,
+                          builder: (dialogCtx) => AlertDialog(
+                            title: const Text('Delete Workspace?'),
+                            content: const Text('Are you sure? This will hide the company from your dashboard.'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                                onPressed: () {
+                                  ref.read(companyProvider.notifier).deleteCompany(company);
+                                  Navigator.pop(dialogCtx);
+                                },
+                                child: const Text('Delete'),
+                              )
+                            ],
+                          )
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+          
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Row(
               children: [
-                // Modern Avatar
                 Container(
                   height: 56,
                   width: 56,
@@ -224,7 +337,6 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
                 ),
                 const SizedBox(width: 16),
                 
-                // Text Details
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -244,7 +356,6 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
                   ),
                 ),
                 
-                // Secure Indicator
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
@@ -267,18 +378,17 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
     );
   }
 
-  // --- UPGRADED EMPTY STATE ---
   Widget _buildEmptyState() {
     return Center(
       child: TweenAnimationBuilder<double>(
         duration: const Duration(milliseconds: 800),
         tween: Tween(begin: 0.0, end: 1.0),
-        curve: Curves.easeOutBack, // The bouncy curve!
+        curve: Curves.easeOutBack, 
         builder: (context, value, child) {
           return Transform.scale(
             scale: value,
             child: Opacity(
-              opacity: value.clamp(0.0, 1.0), // Clamps it so it never goes above 1.0!
+              opacity: value.clamp(0.0, 1.0), 
               child: child,
             ),
           );

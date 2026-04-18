@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // <-- 1. ADDED FOR KEYBOARD NAVIGATION
+import 'package:flutter/services.dart'; 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:printing/printing.dart';
 import '../../../../models/invoice_model.dart';
@@ -92,6 +92,7 @@ class _EditablePurchaseScreenState extends ConsumerState<EditablePurchaseScreen>
 
     final updatedPurchaser = Purchaser(
       id: widget.purchaser.id,
+      userId: widget.purchaser.userId, // <-- 1. ADDED USER ID
       name: _vendorNameCtrl.text.trim(),
       gstin: _gstinCtrl.text.trim(),
       address1: widget.purchaser.address1, address2: widget.purchaser.address2,
@@ -101,7 +102,9 @@ class _EditablePurchaseScreenState extends ConsumerState<EditablePurchaseScreen>
     );
 
     final updatedInvoice = Invoice(
-      id: widget.invoice.id, companyId: widget.company.id, type: 'purchase',
+      id: widget.invoice.id, 
+      userId: widget.invoice.userId, // <-- 2. ADDED USER ID
+      companyId: widget.company.id, type: 'purchase',
       purchaserId: widget.purchaser.id, billNo: _billNoCtrl.text.trim(),
       billDate: widget.invoice.billDate, truckNo: '', driverName: '', licNo: '', nos: 1, unit: 'NA', quantity: 1,
       rate: double.tryParse(_amountCtrl.text) ?? 0.0,
@@ -114,6 +117,7 @@ class _EditablePurchaseScreenState extends ConsumerState<EditablePurchaseScreen>
 
     final updatedCompany = Company(
       id: widget.company.id,
+      userId: widget.company.userId, // <-- 3. ADDED USER ID
       name: widget.company.name,
       address1: widget.company.address1,
       address2: widget.company.address2,
@@ -140,7 +144,6 @@ class _EditablePurchaseScreenState extends ConsumerState<EditablePurchaseScreen>
     };
   }
 
-  // --- 2. UPGRADED CELL WITH KEYBOARD NAVIGATION ---
   Widget _cell(TextEditingController ctrl, {bool isNum = false, TextAlign align = TextAlign.left, FontWeight fw = FontWeight.normal}) {
     return Focus(
       onKeyEvent: (node, event) {
@@ -160,7 +163,7 @@ class _EditablePurchaseScreenState extends ConsumerState<EditablePurchaseScreen>
         textAlign: align,
         keyboardType: isNum ? TextInputType.number : TextInputType.text,
         textCapitalization: TextCapitalization.characters, 
-        textInputAction: TextInputAction.next, // Allows hitting Enter to jump
+        textInputAction: TextInputAction.next, 
         onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
         decoration: const InputDecoration(border: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero),
         onChanged: (_) => _recalculate(),

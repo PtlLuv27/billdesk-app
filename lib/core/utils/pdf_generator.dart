@@ -9,6 +9,16 @@ import '../../models/purchaser_model.dart';
 import 'number_to_words.dart';
 
 class PdfGenerator {
+  
+  // --- COMMA FORMATTER (Indian Numbering System, No '/-') ---
+  static String _formatAmount(num value, {int decimals = 0}) {
+    return NumberFormat.currency(
+      locale: 'en_IN', 
+      symbol: '', 
+      decimalDigits: decimals
+    ).format(value);
+  }
+
   // ─── 1. PIXEL PERFECT SALES INVOICE ───
   static Future<Uint8List> generateInvoice(
       Invoice invoice, Company company, Purchaser purchaser) async {
@@ -247,9 +257,10 @@ class PdfGenerator {
                         ),
                         _cell(purchaser.hsnNo.toUpperCase(), align: pw.TextAlign.center, verticalPadding: 12),
                         _cell(invoice.nos.toString(), align: pw.TextAlign.center, verticalPadding: 12),
-                        _cell(invoice.quantity.toStringAsFixed(2), align: pw.TextAlign.center, verticalPadding: 12),
-                        _cell(invoice.rate.toStringAsFixed(2), align: pw.TextAlign.center, verticalPadding: 12),
-                        _cell(invoice.amount.toStringAsFixed(0), align: pw.TextAlign.center, verticalPadding: 12),
+                        // --- FORMATTED AMOUNTS ---
+                        _cell(_formatAmount(invoice.quantity, decimals: 2), align: pw.TextAlign.center, verticalPadding: 12),
+                        _cell(_formatAmount(invoice.rate, decimals: 2), align: pw.TextAlign.center, verticalPadding: 12),
+                        _cell(_formatAmount(invoice.amount, decimals: 0), align: pw.TextAlign.center, verticalPadding: 12),
                       ],
                     ),
                   ],
@@ -293,7 +304,8 @@ class PdfGenerator {
                           ),
                         ),
                         _cell(''), _cell(''), _cell(''), _cell(''),
-                        _cell(invoice.labourCharge.toStringAsFixed(0), align: pw.TextAlign.center),
+                        // --- FORMATTED ---
+                        _cell(_formatAmount(invoice.labourCharge, decimals: 0), align: pw.TextAlign.center),
                       ]
                     ),
                   ]
@@ -310,7 +322,8 @@ class PdfGenerator {
                     pw.TableRow(
                       children: [
                         _cell('SUB TOTAL', align: pw.TextAlign.center, fontSize: 12, verticalPadding: 2),
-                        _cell(invoice.subTotal.toStringAsFixed(0), align: pw.TextAlign.center, fontSize: 14, verticalPadding: 2),
+                        // --- FORMATTED ---
+                        _cell(_formatAmount(invoice.subTotal, decimals: 0), align: pw.TextAlign.center, fontSize: 14, verticalPadding: 2),
                       ]
                     ),
                   ]
@@ -332,7 +345,8 @@ class PdfGenerator {
                         _cell('', verticalPadding: 0), 
                         _cell('SGST', align: pw.TextAlign.center, verticalPadding: 0),
                         _cell('${purchaser.sgstRate.toStringAsFixed(2)}%', align: pw.TextAlign.center, verticalPadding: 0),
-                        _cell((invoice.subTotal * (purchaser.sgstRate / 100)).round().toString(), align: pw.TextAlign.center, verticalPadding: 0),
+                        // --- FORMATTED ---
+                        _cell(_formatAmount((invoice.subTotal * (purchaser.sgstRate / 100)).round(), decimals: 0), align: pw.TextAlign.center, verticalPadding: 0),
                       ]
                     ),
                     pw.TableRow(
@@ -341,7 +355,8 @@ class PdfGenerator {
                         _cell('', verticalPadding: 0), 
                         _cell('CGST', align: pw.TextAlign.center, verticalPadding: 0),
                         _cell('${purchaser.cgstRate.toStringAsFixed(2)}%', align: pw.TextAlign.center, verticalPadding: 0),
-                        _cell((invoice.subTotal * (purchaser.cgstRate / 100)).round().toString(), align: pw.TextAlign.center, verticalPadding: 0),
+                        // --- FORMATTED ---
+                        _cell(_formatAmount((invoice.subTotal * (purchaser.cgstRate / 100)).round(), decimals: 0), align: pw.TextAlign.center, verticalPadding: 0),
                       ]
                     ),
                     pw.TableRow(
@@ -349,7 +364,8 @@ class PdfGenerator {
                         _cell('', verticalPadding: 0), 
                         _cell('IGST', align: pw.TextAlign.center, verticalPadding: 0),
                         _cell('${purchaser.igstRate.toStringAsFixed(2)}%', align: pw.TextAlign.center, verticalPadding: 0),
-                        _cell((invoice.subTotal * (purchaser.igstRate / 100)).round().toString(), align: pw.TextAlign.center, verticalPadding: 0),
+                        // --- FORMATTED ---
+                        _cell(_formatAmount((invoice.subTotal * (purchaser.igstRate / 100)).round(), decimals: 0), align: pw.TextAlign.center, verticalPadding: 0),
                       ]
                     ),
                   ],
@@ -369,7 +385,8 @@ class PdfGenerator {
                   children: [
                     pw.TableRow(children: [
                       _cell('TOTAL AMOUNT', align: pw.TextAlign.center, fontSize: 12, verticalPadding: 2),
-                      _cell(invoice.totalAmount.toStringAsFixed(0), align: pw.TextAlign.center, fontSize: 14, verticalPadding: 2),
+                      // --- FORMATTED ---
+                      _cell(_formatAmount(invoice.totalAmount, decimals: 0), align: pw.TextAlign.center, fontSize: 14, verticalPadding: 2),
                     ]),
                   ],
                 ),
@@ -397,7 +414,6 @@ class PdfGenerator {
                 ),
 
                 // ── 17. FOOTER (DRIVER/LIC + BANK DETAILS + SIGNATURE) ──
-                // Unchanged to protect original spacing
                 pw.Container(
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.stretch,
@@ -540,15 +556,30 @@ class PdfGenerator {
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.stretch,
                     children: [
-                      pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text('AMOUNT (W/O GST):', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)), pw.Text(invoice.subTotal.toStringAsFixed(0), style: pw.TextStyle(fontWeight: pw.FontWeight.bold))]),
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, 
+                        children: [
+                          pw.Text('AMOUNT (W/O GST):', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)), 
+                          // --- FORMATTED ---
+                          pw.Text(_formatAmount(invoice.subTotal, decimals: 0), style: pw.TextStyle(fontWeight: pw.FontWeight.bold))
+                        ]
+                      ),
                       pw.SizedBox(height: 8),
-                      pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [pw.Text('GST APPLIED:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)), pw.Text(invoice.gstAmount.toStringAsFixed(0), style: pw.TextStyle(fontWeight: pw.FontWeight.bold))]),
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, 
+                        children: [
+                          pw.Text('GST APPLIED:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)), 
+                          // --- FORMATTED ---
+                          pw.Text(_formatAmount(invoice.gstAmount, decimals: 0), style: pw.TextStyle(fontWeight: pw.FontWeight.bold))
+                        ]
+                      ),
                       pw.Divider(thickness: 1),
                       pw.Row(
                         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, 
                         children: [
                           pw.Text('TOTAL EXPENSE:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 16)), 
-                          pw.Text('Rs. ${invoice.totalAmount.toStringAsFixed(0)}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 16))
+                          // --- FORMATTED ---
+                          pw.Text('Rs. ${_formatAmount(invoice.totalAmount, decimals: 0)}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 16))
                         ]
                       ),
                     ]
@@ -570,7 +601,7 @@ class PdfGenerator {
     pw.TextAlign align = pw.TextAlign.center,
     double fontSize = 10,
     pw.BoxDecoration? decoration,
-    double verticalPadding = 0, // <-- Default is now completely tight
+    double verticalPadding = 0, 
   }) {
     return pw.Container(
       decoration: decoration,

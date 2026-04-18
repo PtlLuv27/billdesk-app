@@ -4,13 +4,13 @@ import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart'; 
 import 'dart:math' as math;
 
-import '../../../../models/purchaser_model.dart'; // <-- FIXED: Added missing Purchaser import
+import '../../../../models/purchaser_model.dart'; 
 import '../../providers/company_provider.dart';
 import '../../providers/invoice_provider.dart';
 import '../../providers/payment_provider.dart';
 import '../../providers/purchaser_provider.dart';
 import '../edit_company_screen.dart';
-import '../../../dashboard/global_dashboard_screen.dart'; // Ensure this matches your actual file name
+import '../../../dashboard/global_dashboard_screen.dart'; 
 
 class CompanyHomeTab extends ConsumerStatefulWidget {
   const CompanyHomeTab({super.key});
@@ -21,6 +21,13 @@ class CompanyHomeTab extends ConsumerStatefulWidget {
 
 class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
   String _analyticsFilter = 'Both'; // Both, Sales, Purchase
+
+  // --- COMMA FORMATTER (Indian format with trailing /-) ---
+  String formatAmount(double val) {
+    // Uses en_IN for Indian comma placements, rounded to 0 decimal places
+    final formatter = NumberFormat.decimalPattern('en_IN');
+    return '${formatter.format(val.round())}/-';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -161,7 +168,6 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                 value: _analyticsFilter,
                 items: ['Both', 'Sales', 'Purchase'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                 onChanged: (val) {
-                  // <-- FIXED: Added null check
                   if (val != null) {
                     setState(() => _analyticsFilter = val);
                   }
@@ -196,8 +202,8 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
             child: BarChart(
               BarChartData(
                 alignment: BarChartAlignment.spaceAround,
-                maxY: maxChartValue * 1.2, // Give it a 20% breathing room at the top
-                barTouchData: BarTouchData(enabled: true), // <-- FIXED: Changed from BarChartTouchData to BarTouchData
+                maxY: maxChartValue * 1.2, 
+                barTouchData: BarTouchData(enabled: true), 
                 titlesData: FlTitlesData(
                   show: true,
                   bottomTitles: AxisTitles(
@@ -206,7 +212,7 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                       getTitlesWidget: (value, meta) => Padding(padding: const EdgeInsets.only(top: 8.0), child: Text(monthLabels[value.toInt()], style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold))),
                     ),
                   ),
-                  leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), // Hide Y-Axis text to save space
+                  leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), 
                   topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                 ),
@@ -258,7 +264,7 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                           return PieChartSectionData(
                             color: pieColors[i],
                             value: top5Debtors[i].value,
-                            title: '', // Hide text inside pie slice
+                            title: '', 
                             radius: 40,
                           );
                         }),
@@ -270,10 +276,9 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: List.generate(top5Debtors.length, (i) {
-                        // Find purchaser name safely using the imported Purchaser model
                         final purchaserName = allPurchasers.firstWhere(
                           (p) => p.id == top5Debtors[i].key, 
-                          orElse: () => Purchaser(id: '', name: 'Unknown', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0)
+                          orElse: () => Purchaser(id: '', userId: '', name: 'Unknown', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0)
                         ).name;
                         
                         return Padding(
@@ -283,7 +288,9 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                               Container(width: 10, height: 10, color: pieColors[i]),
                               const SizedBox(width: 8),
                               Expanded(child: Text(purchaserName, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
-                              Text('₹${(top5Debtors[i].value / 1000).toStringAsFixed(1)}k', style: const TextStyle(fontSize: 11)),
+                              
+                              // FORMATTED PIE CHART AMOUNTS
+                              Text('₹${formatAmount(top5Debtors[i].value)}', style: const TextStyle(fontSize: 11)),
                             ],
                           ),
                         );
@@ -314,7 +321,17 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
         children: [
           Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Text('₹${amount.toStringAsFixed(0)}', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: amount >= 0 ? Colors.black87 : Colors.red)),
+          
+          // FORMATTED SNAPSHOT AMOUNTS
+          Text(
+            '₹${formatAmount(amount)}', 
+            style: TextStyle(
+              fontSize: 24, 
+              fontWeight: FontWeight.bold, 
+              color: amount >= 0 ? Colors.black87 : Colors.red
+            )
+          ),
+          
           const SizedBox(height: 8),
           Text(dateLabel, style: TextStyle(color: color.shade300, fontSize: 10, fontWeight: FontWeight.bold)),
         ],

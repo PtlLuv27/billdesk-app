@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../models/company_model.dart';
 import '../company_workspace/providers/company_provider.dart';
+import '../authentication/providers/auth_provider.dart';
 import 'package:flutter/services.dart';
 
 class CreateCompanyScreen extends ConsumerStatefulWidget {
@@ -42,11 +43,21 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
 
   void _saveCompany() async {
     if (_formKey.currentState!.validate()) {
+      
+      // 2. GET LOGGED IN USER ID
+      final currentUserId = ref.read(authProvider);
+      
+      if (currentUserId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error: You must be logged in!')));
+        return;
+      }
+
       final uuid = const Uuid().v4();
       final currentTimestamp = DateTime.now().millisecondsSinceEpoch;
 
       final newCompany = Company(
         id: uuid,
+        userId: currentUserId, // <-- 3. ATTACH TO NEW COMPANY
         name: _nameController.text.trim(),
         pin: _pinController.text.trim(),
         gstin: _gstinController.text.trim(),
@@ -111,7 +122,7 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
         decoration: InputDecoration(
           labelText: label, 
           border: const OutlineInputBorder(),
-          counterText: "", // Hides the character counter below maxLength fields
+          counterText: "", 
         ),
         validator: validator,
       ),
@@ -199,7 +210,7 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
             _buildTextField(
               controller: _ifscController,
               label: 'IFSC Code',
-              isLast: true, // This is the last field, pressing enter will trigger save!
+              isLast: true, 
             ),
             
             const SizedBox(height: 30),

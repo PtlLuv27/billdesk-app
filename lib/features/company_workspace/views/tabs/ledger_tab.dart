@@ -7,8 +7,7 @@ import '../../providers/invoice_provider.dart';
 import '../../providers/company_provider.dart';
 import '../../providers/purchaser_provider.dart';
 import '../editable_invoice_screen.dart';
-import '../editable_purchase_screen.dart'; // <-- Added import for Purchase Screen
-
+import '../editable_purchase_screen.dart'; 
 
 class LedgerTab extends ConsumerStatefulWidget {
   const LedgerTab({super.key});
@@ -20,31 +19,33 @@ class LedgerTab extends ConsumerStatefulWidget {
 class _LedgerTabState extends ConsumerState<LedgerTab> {
   DateTime? _startDate;
   DateTime? _endDate;
-  String _typeFilter = 'Both'; // Both, Sales Only, Purchase Only
-  String _taxFilter = 'With GST'; // With GST, Without GST
+  String _typeFilter = 'Both'; 
+  String _taxFilter = 'With GST'; 
   
-  // --- NEW: PURCHASER FILTER STATE ---
-  String? _selectedPurchaserId; // null means 'All Parties'
+  String? _selectedPurchaserId; 
 
-  // --- ANALYTICS ENGINE ---
+  // --- NEW: TRACK SORT ORDER ---
+  bool _isNewestFirst = true;
+
+  // --- COMMA FORMATTER (With 2 decimals for Ledger) ---
+  String formatAmount(double val) {
+    return NumberFormat.currency(locale: 'en_IN', symbol: '', decimalDigits: 2).format(val);
+  }
+
   List<Invoice> _getFilteredInvoices(List<Invoice> allInvoices) {
     return allInvoices.where((invoice) {
-      // 1. Date Filter
       if (_startDate != null && _endDate != null) {
         final billDate = DateTime.fromMillisecondsSinceEpoch(invoice.billDate);
-        // Normalize dates to ignore times
         final start = DateTime(_startDate!.year, _startDate!.month, _startDate!.day);
         final end = DateTime(_endDate!.year, _endDate!.month, _endDate!.day, 23, 59, 59);
         if (billDate.isBefore(start) || billDate.isAfter(end)) return false;
       }
       
-      // 2. Type Filter
       if (_typeFilter == 'Sales Only' && invoice.type != 'sales') return false;
       if (_typeFilter == 'Purchase Only' && invoice.type != 'purchase') return false;
       
-      // 3. Purchaser / Party Filter
       if (_selectedPurchaserId != null && invoice.purchaserId != _selectedPurchaserId) {
-        return false; // Hide this bill if it doesn't belong to the selected party
+        return false; 
       }
       
       return true;
@@ -56,7 +57,6 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
     double totalPurchases = 0.0;
 
     for (var invoice in filteredInvoices) {
-      // Choose which column to pull based on Tax Filter
       double amountToAdd = _taxFilter == 'With GST' ? invoice.totalAmount : invoice.subTotal;
 
       if (invoice.type == 'sales') {
@@ -69,7 +69,6 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
     return totalSales - totalPurchases;
   }
 
-  // --- UI HELPERS ---
   Future<void> _selectDateRange() async {
     final picked = await showDateRangePicker(
       context: context,
@@ -84,7 +83,6 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
     }
   }
 
-  // --- EDIT BILL NO DIALOG ---
   void _showEditBillNoDialog(BuildContext context, Invoice invoice, WidgetRef ref) {
     final editCtrl = TextEditingController(text: invoice.billNo);
 
@@ -101,9 +99,8 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
           ElevatedButton(
             onPressed: () async {
               if (editCtrl.text.isNotEmpty) {
-                // Re-build invoice with the new Bill No
                 final updatedInvoice = Invoice(
-                  id: invoice.id, companyId: invoice.companyId, type: invoice.type,
+                  id: invoice.id, userId: invoice.userId, companyId: invoice.companyId, type: invoice.type,
                   purchaserId: invoice.purchaserId, billDate: invoice.billDate,
                   truckNo: invoice.truckNo, driverName: invoice.driverName,
                   licNo: invoice.licNo, nos: invoice.nos, unit: invoice.unit,
@@ -128,15 +125,22 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Watch the live database
     final allInvoices = ref.watch(invoiceProvider);
-    final allPurchasers = ref.watch(purchaserProvider); // Watch purchasers for the dropdown
+    final allPurchasers = ref.watch(purchaserProvider); 
     
-    // 2. Apply filters
     final filteredInvoices = _getFilteredInvoices(allInvoices);
     
-    // 3. Calculate Math
-    final netBalance = _calculateNetBalance(filteredInvoices);
+    // --- NEW: APPLY DYNAMIC SORTING ---
+    final sortedInvoices = List<Invoice>.from(filteredInvoices);
+    sortedInvoices.sort((a, b) {
+      if (_isNewestFirst) {
+        return b.billDate.compareTo(a.billDate); // Newest First
+      } else {
+        return a.billDate.compareTo(b.billDate); // Oldest First
+      }
+    });
+
+    final netBalance = _calculateNetBalance(sortedInvoices);
 
     return Scaffold(
       body: Column(
@@ -147,7 +151,6 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
             color: Colors.grey.shade100,
             child: Column(
               children: [
-                // Date Filter Row
                 Row(
                   children: [
                     Expanded(
@@ -168,7 +171,6 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
                 ),
                 const SizedBox(height: 10),
                 
-                // Type & Tax Filter Row
                 Row(
                   children: [
                     Expanded(
@@ -192,7 +194,6 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
                 ),
                 const SizedBox(height: 10),
                 
-                // PURCHASER FILTER DROPDOWN
                 DropdownButtonFormField<String?>(
                   decoration: const InputDecoration(
                     labelText: 'Filter by Party / Purchaser', 
@@ -201,7 +202,7 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
                     prefixIcon: Icon(Icons.person_search),
                   ),
                   value: _selectedPurchaserId,
-                  isExpanded: true, // Prevents overflow if names are long
+                  isExpanded: true, 
                   items: [
                     const DropdownMenuItem(value: null, child: Text('All Parties', style: TextStyle(fontWeight: FontWeight.bold))),
                     ...allPurchasers.map((p) => DropdownMenuItem(value: p.id, child: Text(p.name))),
@@ -229,7 +230,7 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  '₹${netBalance.toStringAsFixed(2)}',
+                  '₹${formatAmount(netBalance)}',
                   style: TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.bold,
@@ -243,18 +244,17 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
 
           // --- BILLS ARCHIVE LIST ---
           Expanded(
-            child: filteredInvoices.isEmpty
+            child: sortedInvoices.isEmpty
                 ? const Center(child: Text('No transactions found for these filters.'))
                 : ListView.builder(
-                    itemCount: filteredInvoices.length,
+                    itemCount: sortedInvoices.length,
                     itemBuilder: (context, index) {
-                      final invoice = filteredInvoices[index];
+                      final invoice = sortedInvoices[index];
                       final isSale = invoice.type == 'sales';
                       
-                      // Find the purchaser name to display in the list securely
                       final purchaser = allPurchasers.firstWhere(
                         (p) => p.id == invoice.purchaserId, 
-                        orElse: () => Purchaser(id: '', name: 'Unknown', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0)
+                        orElse: () => Purchaser(id: '', userId: '', name: 'Unknown', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0)
                       );
                       
                       return ListTile(
@@ -265,13 +265,19 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
                             color: isSale ? Colors.blue : Colors.red,
                           ),
                         ),
-                        title: Text('Bill #${invoice.billNo} - ${purchaser.name}'),
-                        subtitle: Text(DateFormat('dd MMM yyyy').format(DateTime.fromMillisecondsSinceEpoch(invoice.billDate))),
+                        
+                        // --- NEW: TITLE SHOWS ONLY BILL NO, SUBTITLE SHOWS PURCHASER & DATE ---
+                        title: Text('Bill #${invoice.billNo}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        subtitle: Padding(
+                          padding: const EdgeInsets.only(top: 4.0),
+                          child: Text('${purchaser.name}\n${DateFormat('dd MMM yyyy').format(DateTime.fromMillisecondsSinceEpoch(invoice.billDate))}', style: TextStyle(color: Colors.grey.shade700)),
+                        ),
+                        isThreeLine: true,
+                        
                         trailing: Text(
-                          '₹${(_taxFilter == 'With GST' ? invoice.totalAmount : invoice.subTotal).toStringAsFixed(2)}',
+                          '₹${formatAmount(_taxFilter == 'With GST' ? invoice.totalAmount : invoice.subTotal)}',
                           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isSale ? Colors.green : Colors.red),
                         ),
-                        // --- ON TAP (Dynamic Routing) ---
                         onTap: () {
                           final company = ref.read(activeCompanyProvider);
 
@@ -299,34 +305,30 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
                             );
                           }
                         },
-                        // --- ON LONG PRESS (Quick Actions) ---
                         onLongPress: () {
                           showModalBottomSheet(
                             context: context,
                             builder: (context) => SafeArea(
                               child: Wrap(
                                 children: [
-                                  // 1. Display Date
                                   ListTile(
                                     leading: const Icon(Icons.calendar_month, color: Colors.blue),
                                     title: Text('Bill Date: ${DateFormat('dd MMM yyyy').format(DateTime.fromMillisecondsSinceEpoch(invoice.billDate))}'),
                                   ),
                                   const Divider(height: 1),
-                                  // 2. Edit Name / Bill No
                                   ListTile(
                                     leading: const Icon(Icons.edit),
                                     title: const Text('Edit Bill No.'),
                                     onTap: () {
-                                      Navigator.pop(context); // Close bottom sheet
+                                      Navigator.pop(context); 
                                       _showEditBillNoDialog(context, invoice, ref);
                                     },
                                   ),
-                                  // 3. Delete Data
                                   ListTile(
                                     leading: const Icon(Icons.delete, color: Colors.red),
                                     title: const Text('Delete Data', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
                                     onTap: () async {
-                                      Navigator.pop(context); // Close bottom sheet
+                                      Navigator.pop(context); 
                                       await ref.read(invoiceProvider.notifier).deleteInvoice(invoice.id);
                                       if (mounted) {
                                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bill Deleted!')));
@@ -343,6 +345,21 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
                   ),
           ),
         ],
+      ),
+      
+      // --- NEW: INVERT BUTTON FAB ---
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          setState(() {
+            _isNewestFirst = !_isNewestFirst; // Toggle sort order
+          });
+        },
+        backgroundColor: const Color.fromARGB(255, 7, 195, 233), // Colored to match your uploaded image
+        foregroundColor: Colors.white,
+        shape: const CircleBorder(),
+        elevation: 4,
+        tooltip: 'Reverse Order',
+        child: const Icon(Icons.swap_vert, size: 28),
       ),
     );
   }

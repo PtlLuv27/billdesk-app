@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // <-- ADDED FOR KEYBOARD NAVIGATION
+import 'package:flutter/services.dart'; 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:printing/printing.dart';
 import '../../../../models/invoice_model.dart';
@@ -137,33 +137,63 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     });
   }
 
-  // --- CHANGED TO RETURN UPDATED DATA FOR INSTANT PDF GENERATION ---
   Future<Map<String, dynamic>> _saveAllChanges() async {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
 
     final updatedInvoice = Invoice(
-      id: widget.invoice.id, companyId: widget.company.id, type: widget.invoice.type,
-      purchaserId: widget.purchaser.id, billNo: _billNoCtrl.text.trim(), billDate: widget.invoice.billDate,
-      truckNo: _truckNoCtrl.text.trim(), driverName: _driverNameCtrl.text.trim(), licNo: _licNoCtrl.text.trim(),
+      id: widget.invoice.id, 
+      userId: widget.invoice.userId, // <-- ADDED USER ID
+      companyId: widget.company.id, 
+      type: widget.invoice.type,
+      purchaserId: widget.purchaser.id, 
+      billNo: _billNoCtrl.text.trim(), 
+      billDate: widget.invoice.billDate,
+      truckNo: _truckNoCtrl.text.trim(), 
+      driverName: _driverNameCtrl.text.trim(), 
+      licNo: _licNoCtrl.text.trim(),
       nos: int.tryParse(_nosCtrl.text) ?? 1, 
-      unit: widget.invoice.unit, quantity: double.tryParse(_qtyCtrl.text) ?? 0.0,
-      rate: double.tryParse(_rateCtrl.text) ?? 0.0, amount: _amount, labourCharge: double.tryParse(_labourCtrl.text) ?? 0.0,
-      subTotal: _subTotal, gstAmount: _gstAmount, totalAmount: _totalAmount,
-      lastUpdated: timestamp, isDeleted: widget.invoice.isDeleted,
+      unit: widget.invoice.unit, 
+      quantity: double.tryParse(_qtyCtrl.text) ?? 0.0,
+      rate: double.tryParse(_rateCtrl.text) ?? 0.0, 
+      amount: _amount, 
+      labourCharge: double.tryParse(_labourCtrl.text) ?? 0.0,
+      subTotal: _subTotal, 
+      gstAmount: _gstAmount, 
+      totalAmount: _totalAmount,
+      lastUpdated: timestamp, 
+      isDeleted: widget.invoice.isDeleted,
     );
 
     final updatedPurchaser = Purchaser(
-      id: widget.purchaser.id, name: _purNameCtrl.text.trim(), address1: _purAdd1Ctrl.text.trim(),
-      address2: _purAdd2Ctrl.text.trim(), particulars: _particularsCtrl.text.trim(), gstin: _gstinCtrl.text.trim(),
-      hsnNo: _hsnCtrl.text.trim(), sgstRate: double.tryParse(_sgstCtrl.text) ?? 0.0, cgstRate: double.tryParse(_cgstCtrl.text) ?? 0.0,
-      igstRate: double.tryParse(_igstCtrl.text) ?? 0.0, lastUpdated: timestamp, isDeleted: widget.purchaser.isDeleted,
+      id: widget.purchaser.id, 
+      userId: widget.purchaser.userId, // <-- ADDED USER ID
+      name: _purNameCtrl.text.trim(), 
+      address1: _purAdd1Ctrl.text.trim(),
+      address2: _purAdd2Ctrl.text.trim(), 
+      particulars: _particularsCtrl.text.trim(), 
+      gstin: _gstinCtrl.text.trim(),
+      hsnNo: _hsnCtrl.text.trim(), 
+      sgstRate: double.tryParse(_sgstCtrl.text) ?? 0.0, 
+      cgstRate: double.tryParse(_cgstCtrl.text) ?? 0.0,
+      igstRate: double.tryParse(_igstCtrl.text) ?? 0.0, 
+      lastUpdated: timestamp, 
+      isDeleted: widget.purchaser.isDeleted,
     );
 
     final updatedCompany = Company(
-      id: widget.company.id, name: _compNameCtrl.text.trim(), address1: widget.company.address1,
-      address2: widget.company.address2, mobileNumber: widget.company.mobileNumber, bankName: _compBankCtrl.text.trim(),
-      accountNumber: _compAccCtrl.text.trim(), ifscCode: _compIfscCtrl.text.trim(), pin: widget.company.pin, gstin: widget.company.gstin,
-      lastUpdated: timestamp, isDeleted: widget.company.isDeleted,
+      id: widget.company.id, 
+      userId: widget.company.userId, // <-- ADDED USER ID
+      name: _compNameCtrl.text.trim(), 
+      address1: widget.company.address1,
+      address2: widget.company.address2, 
+      mobileNumber: widget.company.mobileNumber, 
+      bankName: _compBankCtrl.text.trim(),
+      accountNumber: _compAccCtrl.text.trim(), 
+      ifscCode: _compIfscCtrl.text.trim(), 
+      pin: widget.company.pin, 
+      gstin: widget.company.gstin,
+      lastUpdated: timestamp, 
+      isDeleted: widget.company.isDeleted,
     );
 
     await ref.read(invoiceProvider.notifier).updateInvoice(updatedInvoice);

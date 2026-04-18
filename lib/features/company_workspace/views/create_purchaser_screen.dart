@@ -3,7 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../models/purchaser_model.dart';
 import '../providers/purchaser_provider.dart';
-import 'package:flutter/services.dart'; // <-- Added for keyboard listening
+import '../../authentication/providers/auth_provider.dart'; // <-- 1. IMPORT AUTH PROVIDER
+import 'package:flutter/services.dart'; 
 
 class CreatePurchaserScreen extends ConsumerStatefulWidget {
   const CreatePurchaserScreen({super.key});
@@ -41,8 +42,18 @@ class _CreatePurchaserScreenState extends ConsumerState<CreatePurchaserScreen> {
 
   void _savePurchaser() {
     if (_formKey.currentState!.validate()) {
+      
+      // 2. GET THE LOGGED IN USER ID
+      final currentUserId = ref.read(authProvider);
+      
+      if (currentUserId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error: You must be logged in!')));
+        return;
+      }
+
       final newPurchaser = Purchaser(
         id: const Uuid().v4(),
+        userId: currentUserId, // <-- 3. ATTACH THE USER ID TO THE NEW PURCHASER
         name: _nameController.text.trim(),
         address1: _address1Controller.text.trim(),
         address2: _address2Controller.text.trim(),

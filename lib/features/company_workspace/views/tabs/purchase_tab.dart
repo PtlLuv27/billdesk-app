@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
+import 'package:intl/intl.dart'; // <-- IMPORT ADDED FOR COMMA FORMATTING
 import '../../../../models/invoice_model.dart';
 import '../../../../models/purchaser_model.dart';
 import '../../providers/company_provider.dart';
 import '../../providers/purchaser_provider.dart';
 import '../../providers/invoice_provider.dart';
 import '../editable_purchase_screen.dart';
+import '../../../authentication/providers/auth_provider.dart'; 
 
 class PurchaseTab extends ConsumerStatefulWidget {
   const PurchaseTab({super.key});
@@ -18,7 +20,7 @@ class PurchaseTab extends ConsumerStatefulWidget {
 class _PurchaseTabState extends ConsumerState<PurchaseTab> {
   final _formKey = GlobalKey<FormState>();
   
-  bool _isCustomVendor = false; // Toggle state
+  bool _isCustomVendor = false; 
   Purchaser? _selectedVendor;
   
   final _customVendorController = TextEditingController();
@@ -28,6 +30,11 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
   
   double _calculatedGstRupees = 0.0;
   double _totalAmount = 0.0;
+
+  // --- COMMA FORMATTER (No decimals for purchase overview) ---
+  String formatAmount(double val) {
+    return NumberFormat.currency(locale: 'en_IN', symbol: '', decimalDigits: 0).format(val);
+  }
 
   @override
   void dispose() {
@@ -55,16 +62,21 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
         return;
       }
 
+      final currentUserId = ref.read(authProvider);
+      if (currentUserId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error: You must be logged in!')));
+        return;
+      }
+
       final activeCompany = ref.read(activeCompanyProvider);
       if (activeCompany == null) return;
 
       Purchaser finalVendor;
 
-      // 1. Handle Vendor Logic
       if (_isCustomVendor) {
-        // Create an empty vendor profile on the fly
         finalVendor = Purchaser(
           id: const Uuid().v4(),
+          userId: currentUserId, 
           name: _customVendorController.text.trim(),
           address1: '', address2: '', particulars: '', gstin: '', hsnNo: '',
           sgstRate: 0, cgstRate: 0, igstRate: 0,
@@ -75,9 +87,9 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
         finalVendor = _selectedVendor!;
       }
 
-      // 2. Build Invoice
       final invoice = Invoice(
         id: const Uuid().v4(),
+        userId: currentUserId, 
         companyId: activeCompany.id,
         type: 'purchase',
         purchaserId: finalVendor.id,
@@ -93,7 +105,6 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
         lastUpdated: DateTime.now().millisecondsSinceEpoch,
       );
 
-      // 3. Save & Navigate
       await ref.read(invoiceProvider.notifier).addInvoice(invoice);
 
       if (mounted) {
@@ -103,7 +114,6 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
           MaterialPageRoute(builder: (context) => EditablePurchaseScreen(invoice: invoice, company: activeCompany, purchaser: finalVendor)),
         );
         
-        // Reset Form
         _formKey.currentState!.reset();
         setState(() {
           _selectedVendor = null;
@@ -128,7 +138,6 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
             const Text('Log Inbound Purchase', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const Divider(),
             
-            // --- VENDOR SELECTION TOGGLE ---
             Row(
               children: [
                 Expanded(
@@ -152,7 +161,6 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
               ],
             ),
             
-            // --- VENDOR INPUT FIELDS ---
             if (!_isCustomVendor)
               DropdownButtonFormField<Purchaser>(
                 decoration: const InputDecoration(labelText: 'Select Vendor/Supplier', border: OutlineInputBorder()),
@@ -173,19 +181,19 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
                 controller: _customVendorController,
                 decoration: const InputDecoration(labelText: 'Enter Vendor Name', border: OutlineInputBorder()),
                 validator: (v) => _isCustomVendor && v!.isEmpty ? 'Required' : null,
+                textInputAction: TextInputAction.next,
               ),
 
             const SizedBox(height: 15),
             
-            // --- BILL NO ---
             TextFormField(
               controller: _billNoController,
               decoration: const InputDecoration(labelText: 'Supplier Bill No.', border: OutlineInputBorder()),
               validator: (v) => v!.isEmpty ? 'Required' : null,
+              textInputAction: TextInputAction.next,
             ),
             const SizedBox(height: 15),
             
-            // --- AMOUNTS ---
             Row(
               children: [
                 Expanded(
@@ -194,6 +202,7 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
                     controller: _amountController,
                     decoration: const InputDecoration(labelText: 'Amount (W/O GST)', border: OutlineInputBorder()),
                     keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.next,
                     onChanged: (_) => _calculateTotal(),
                     validator: (v) => v!.isEmpty ? 'Required' : null,
                   ),
@@ -205,6 +214,7 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
                     controller: _gstPercentController,
                     decoration: const InputDecoration(labelText: 'GST %', border: OutlineInputBorder()),
                     keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.done,
                     onChanged: (_) => _calculateTotal(),
                   ),
                 ),
@@ -213,19 +223,18 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
             
             const SizedBox(height: 20),
             
-            // --- MATH DISPLAY ---
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)),
               child: Column(
                 children: [
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Calculated GST:'), Text('₹${_calculatedGstRupees.toStringAsFixed(0)}')]),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Calculated GST:'), Text('₹${formatAmount(_calculatedGstRupees)}')]),
                   const Divider(),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween, 
                     children: [
                       const Text('Total Expense:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)), 
-                      Text('₹${_totalAmount.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.red))
+                      Text('₹${formatAmount(_totalAmount)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.red))
                     ]
                   ),
                 ],

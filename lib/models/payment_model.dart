@@ -1,5 +1,6 @@
 class Payment {
   final String id;
+  final String userId;
   final String companyId;
   final String purchaserId;
   final double amount;
@@ -9,6 +10,7 @@ class Payment {
 
   Payment({
     required this.id,
+    required this.userId,
     required this.companyId,
     required this.purchaserId,
     required this.amount,
@@ -18,12 +20,12 @@ class Payment {
   });
 
   Map<String, dynamic> toMap() => {
-    'id': id, 'companyId': companyId, 'purchaserId': purchaserId,
+    'id': id, 'userId': userId, 'companyId': companyId, 'purchaserId': purchaserId,
     'amount': amount, 'date': date, 'type': type, 'notes': notes,
   };
 
   factory Payment.fromMap(Map<String, dynamic> map) => Payment(
-    id: map['id'], companyId: map['companyId'], purchaserId: map['purchaserId'],
+    id: map['id'], userId: map['userId'], companyId: map['companyId'], purchaserId: map['purchaserId'],
     amount: map['amount'], date: map['date'], type: map['type'], notes: map['notes'] ?? '',
   );
 }

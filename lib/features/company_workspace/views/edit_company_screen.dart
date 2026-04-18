@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../models/company_model.dart';
 import '../providers/company_provider.dart';
-import 'package:flutter/services.dart'; // <-- Added for keyboard listening
+import 'package:flutter/services.dart';
 
 class EditCompanyScreen extends ConsumerStatefulWidget {
   final Company company;
@@ -48,6 +48,7 @@ class _EditCompanyScreenState extends ConsumerState<EditCompanyScreen> {
     if (_formKey.currentState!.validate()) {
       final updatedCompany = Company(
         id: widget.company.id,
+        userId: widget.company.userId, // <-- 1. ADDED USER ID HERE TO PRESERVE OWNERSHIP
         name: _nameCtrl.text.trim(),
         address1: _add1Ctrl.text.trim(),
         address2: _add2Ctrl.text.trim(),
@@ -174,7 +175,7 @@ class _EditCompanyScreenState extends ConsumerState<EditCompanyScreen> {
             const SizedBox(height: 10),
             _buildTextField(controller: _accCtrl, label: 'Account Number', isNumber: true),
             const SizedBox(height: 10),
-            _buildTextField(controller: _ifscCtrl, label: 'IFSC Code', isLast: true), // Last field auto-saves
+            _buildTextField(controller: _ifscCtrl, label: 'IFSC Code', isLast: true),
             
             const SizedBox(height: 30),
             ElevatedButton(

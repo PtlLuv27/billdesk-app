@@ -1,20 +1,19 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart'; // <-- Added import for Windows SQLite
-import 'features/dashboard/global_dashboard_screen.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart'; 
+// --- 1. ADD THIS IMPORT ---
+import 'package:flutter_localizations/flutter_localizations.dart'; 
+import 'features/authentication/views/splash_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // --- ADDED THIS BLOCK FOR WINDOWS SUPPORT ---
   if (Platform.isWindows || Platform.isLinux) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   }
-  // ---------------------------------------------
 
-  // ProviderScope is required for Riverpod to work!
   runApp(const ProviderScope(child: BillDeskApp()));
 }
 
@@ -26,6 +25,20 @@ class BillDeskApp extends StatelessWidget {
     return MaterialApp(
       title: 'BillDesk',
       debugShowCheckedModeBanner: false,
+      
+      // --- 2. ADD THESE LOCALE SETTINGS ---
+      locale: const Locale('en', 'IN'), // Forces Indian locale (DD/MM/YYYY)
+      supportedLocales: const [
+        Locale('en', 'IN'),
+        Locale('en', 'US'),
+      ],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      // ------------------------------------
+
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueAccent),
         useMaterial3: true,
@@ -35,8 +48,7 @@ class BillDeskApp extends StatelessWidget {
           foregroundColor: Colors.white,
         ),
       ),
-      // This is the dashboard we just built
-      home: const GlobalDashboardScreen(), 
+      home: const SplashScreen(), 
     );
   }
 }
