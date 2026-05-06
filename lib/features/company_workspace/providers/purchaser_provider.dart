@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/database/database_helper.dart';
+import '../../../core/database/sync_engine.dart'; // <-- 1. IMPORT SYNC ENGINE
 import '../../../models/purchaser_model.dart';
 import '../../authentication/providers/auth_provider.dart';
 
@@ -23,13 +24,23 @@ class PurchaserNotifier extends Notifier<List<Purchaser>> {
   }
 
   Future<void> addPurchaser(Purchaser newPurchaser) async {
+    // 1. Save locally
     await DatabaseHelper.instance.insertPurchaser(newPurchaser);
+    
+    // 2. Push to Cloud
+    SyncEngine.pushSingleRecord('purchasers', newPurchaser.toMap());
+
     final userId = ref.read(authProvider);
     if (userId != null) await _loadPurchasers(userId); 
   }
 
   Future<void> updatePurchaser(Purchaser updatedPurchaser) async {
+    // 1. Update locally
     await DatabaseHelper.instance.updatePurchaser(updatedPurchaser);
+    
+    // 2. Push to Cloud
+    SyncEngine.pushSingleRecord('purchasers', updatedPurchaser.toMap());
+
     final userId = ref.read(authProvider);
     if (userId != null) await _loadPurchasers(userId); 
   }
@@ -42,9 +53,15 @@ class PurchaserNotifier extends Notifier<List<Purchaser>> {
       hsnNo: purchaser.hsnNo, sgstRate: purchaser.sgstRate,
       cgstRate: purchaser.cgstRate, igstRate: purchaser.igstRate,
       lastUpdated: DateTime.now().millisecondsSinceEpoch,
-      isDeleted: 1, // <-- Soft Delete Flag
+      isDeleted: 1, // Soft Delete Flag
     );
+    
+    // 1. Soft Delete locally
     await DatabaseHelper.instance.updatePurchaser(updatedPurchaser);
+    
+    // 2. Push Soft Delete to Cloud
+    SyncEngine.pushSingleRecord('purchasers', updatedPurchaser.toMap());
+
     final userId = ref.read(authProvider);
     if (userId != null) await _loadPurchasers(userId); 
   }

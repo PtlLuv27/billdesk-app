@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/database/database_helper.dart';
+import '../../../core/database/sync_engine.dart'; // <-- 1. IMPORT SYNC ENGINE
 import '../../../models/company_model.dart';
 import '../../authentication/providers/auth_provider.dart'; 
 
@@ -21,13 +22,23 @@ class CompanyNotifier extends Notifier<List<Company>> {
   }
 
   Future<void> addCompany(Company newCompany) async {
+    // 1. Save to local SQLite instantly
     await DatabaseHelper.instance.insertCompany(newCompany);
+    
+    // 2. Fire and forget to the Cloud!
+    SyncEngine.pushSingleRecord('companies', newCompany.toMap()); 
+
     final userId = ref.read(authProvider);
     if (userId != null) await _loadCompanies(userId); 
   }
 
   Future<void> updateCompany(Company updatedCompany) async {
+    // 1. Update local SQLite instantly
     await DatabaseHelper.instance.updateCompany(updatedCompany);
+    
+    // 2. Fire and forget to the Cloud!
+    SyncEngine.pushSingleRecord('companies', updatedCompany.toMap()); 
+
     final userId = ref.read(authProvider);
     if (userId != null) await _loadCompanies(userId); 
   }
@@ -40,9 +51,14 @@ class CompanyNotifier extends Notifier<List<Company>> {
       bankName: company.bankName, accountNumber: company.accountNumber,
       ifscCode: company.ifscCode, pin: company.pin,
       lastUpdated: DateTime.now().millisecondsSinceEpoch,
-      isDeleted: 1, // <-- Soft Delete Flag
+      isDeleted: 1, // Soft Delete Flag
     );
+    
     await DatabaseHelper.instance.updateCompany(updatedCompany);
+    
+    // Tell the cloud this item is soft-deleted
+    SyncEngine.pushSingleRecord('companies', updatedCompany.toMap()); 
+
     final userId = ref.read(authProvider);
     if (userId != null) await _loadCompanies(userId); 
   }

@@ -20,20 +20,27 @@ class _CompanyWorkspaceScreenState
     extends ConsumerState<CompanyWorkspaceScreen> {
   int _currentIndex = 0;
 
-  // Placeholder screens for your 5 modules
-  final List<Widget> _pages = [
-    const CompanyHomeTab(),
-    const PurchaserTab(),
-    const SalesTab(),
-    const PurchaseTab(),
-    const LedgerTab(),
-    const AccountTab(),
-  ];
+  // --- NEW: Function to handle tab switching from anywhere ---
+  void _navigateTab(int index) {
+    setState(() {
+      _currentIndex = index;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Read the active company from Riverpod to display its name in the AppBar
+    // Read the active company from Riverpod
     final activeCompany = ref.watch(activeCompanyProvider);
+
+    // --- MOVED: Define pages inside build() so we can pass _navigateTab ---
+    final List<Widget> pages = [
+      CompanyHomeTab(onNavigateTab: _navigateTab), // Passes the function down!
+      const PurchaserTab(),
+      const SalesTab(),
+      const PurchaseTab(),
+      const LedgerTab(),
+      const AccountTab(),
+    ];
 
     return Scaffold(
       appBar: AppBar(
@@ -41,23 +48,22 @@ class _CompanyWorkspaceScreenState
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
-            // Clear the active company when leaving the workspace
             ref.read(activeCompanyProvider.notifier).setCompany(null);
             Navigator.pop(context);
           },
         ),
       ),
-      body: _pages[_currentIndex],
+      // --- UPDATED: IndexedStack keeps your other tabs loaded in memory ---
+      body: IndexedStack(
+        index: _currentIndex,
+        children: pages,
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        type: BottomNavigationBarType.fixed, // <-- VERY IMPORTANT for 6 tabs
+        type: BottomNavigationBarType.fixed, // VERY IMPORTANT for 6 tabs
         selectedItemColor: Colors.blue,
         unselectedItemColor: Colors.grey,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
+        onTap: _navigateTab, // Use the shared function here too
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Home'),
           BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Parties'),
@@ -73,7 +79,7 @@ class _CompanyWorkspaceScreenState
           BottomNavigationBarItem(
             icon: Icon(Icons.account_balance_wallet),
             label: 'Account',
-          ), // <-- Added
+          ),
         ],
       ),
     );

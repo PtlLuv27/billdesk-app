@@ -346,7 +346,7 @@ class _SalesTabState extends ConsumerState<SalesTab> {
                 Expanded(
                   child: DropdownButtonFormField<String>(
                     decoration: const InputDecoration(labelText: 'Unit', border: OutlineInputBorder()),
-                    value: _selectedUnit,
+                    initialValue: _selectedUnit,
                     items: ['CBM', 'KG'].map((u) => DropdownMenuItem(value: u, child: Text(u))).toList(),
                     onChanged: (val) { setState(() => _selectedUnit = val!); _calculateTotals(); },
                   ),

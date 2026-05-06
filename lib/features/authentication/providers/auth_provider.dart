@@ -1,73 +1,90 @@
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
-import '../../../../../core/database/database_helper.dart'; // Adjust path if needed
-import '../../../../../models/user_model.dart'; // Adjust path if needed
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-// State is String?. If null, user is logged out. If it contains text, it is the logged-in userId.
 class AuthNotifier extends Notifier<String?> {
+  final _supabase = Supabase.instance.client;
+
   @override
   String? build() {
-    return null; // Starts as null until checked
+    // Automatically listen for login/logout events from Supabase
+    _supabase.auth.onAuthStateChange.listen((data) {
+      final Session? session = data.session;
+      state = session?.user.id;
+    });
+    
+    // Return current user ID on initial load
+    return _supabase.auth.currentUser?.id;
   }
 
-  Future<void> checkLoginStatus() async {
-    final prefs = await SharedPreferences.getInstance();
-    state = prefs.getString('loggedInUserId');
-  }
-
-  // Cryptographic hashing for local security
-  String _hashPassword(String password) {
-    final bytes = utf8.encode(password);
-    return sha256.convert(bytes).toString();
-  }
-
+  // --- 1. EMAIL & PASSWORD LOGIN ---
   Future<String?> login(String email, String password) async {
-    final db = await DatabaseHelper.instance.database;
-    final hash = _hashPassword(password);
-    
-    // Check DB for matching email and hashed password
-    final result = await db.query('users', where: 'email = ? AND passwordHash = ?', whereArgs: [email, hash]);
-
-    if (result.isNotEmpty) {
-      final userId = result.first['id'] as String;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('loggedInUserId', userId);
-      state = userId; // Updates Riverpod state instantly
-      return null; // Null means success (no error message)
+    try {
+      await _supabase.auth.signInWithPassword(email: email.trim(), password: password);
+      return null; // Success
+    } on AuthException catch (e) {
+      return e.message;
+    } catch (e) {
+      return 'An unexpected error occurred.';
     }
-    return 'Invalid email or password.';
   }
 
+  // --- 2. EMAIL & PASSWORD SIGN UP ---
   Future<String?> signUp(String name, String email, String password) async {
-    final db = await DatabaseHelper.instance.database;
-    
-    // Ensure email is unique
-    final existing = await db.query('users', where: 'email = ?', whereArgs: [email]);
-    if (existing.isNotEmpty) return 'Email already in use.';
-
-    final user = UserModel(
-      id: const Uuid().v4(),
-      name: name,
-      email: email,
-      passwordHash: _hashPassword(password),
-      createdAt: DateTime.now().millisecondsSinceEpoch,
-    );
-
-    await db.insert('users', user.toMap());
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('loggedInUserId', user.id);
-    state = user.id; 
-    return null; // Success
+    try {
+      await _supabase.auth.signUp(
+        email: email.trim(), 
+        password: password,
+        data: {'full_name': name.trim()}, // Saves the user's name to their cloud profile
+      );
+      return null; 
+    } on AuthException catch (e) {
+      return e.message;
+    } catch (e) {
+      return 'An unexpected error occurred.';
+    }
   }
 
+  // --- 3. FORGOT PASSWORD LOGIC ---
+  Future<String?> sendPasswordResetEmail(String email) async {
+    try {
+      // await _supabase.auth.resetPasswordForEmail(
+      //   email.trim(),
+      //   // --- THE FIX: Tell the email to link back to the app! ---
+      //   redirectTo: 'io.supabase.billdesk://login-callback/', 
+      // );
+      await Supabase.instance.client.auth.resetPasswordForEmail(
+  email,
+  // THIS TELLS THE EMAIL LINK TO OPEN THE APP
+  redirectTo: 'io.supabase.billdesk://login-callback/', 
+);
+      return null; // Success
+    } on AuthException catch (e) {
+      return e.message;
+    } catch (e) {
+      return 'Error sending reset email.';
+    }
+  }
+
+  // --- 4. GOOGLE SIGN IN ---
+  Future<String?> signInWithGoogle() async {
+    try {
+      await _supabase.auth.signInWithOAuth(
+        OAuthProvider.google,
+        // Add the trailing slash here so it matches the dashboard exactly!
+        redirectTo: 'io.supabase.billdesk://login-callback/', 
+      );
+      return null;
+    } on AuthException catch (e) {
+      return e.message;
+    } catch (e) {
+      return 'An unexpected error occurred during Google Sign-In.';
+    }
+  }
+
+  // --- 5. LOGOUT ---
   Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('loggedInUserId');
-    state = null; // Logs out UI
+    await _supabase.auth.signOut();
   }
 }
 
-final authProvider = NotifierProvider<AuthNotifier, String?>(() => AuthNotifier());
+final authProvider = NotifierProvider<AuthNotifier, String?>(AuthNotifier.new);

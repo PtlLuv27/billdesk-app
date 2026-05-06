@@ -8,6 +8,7 @@ import '../company_workspace/views/company_workspace_screen.dart';
 import '../company_workspace/views/edit_company_screen.dart'; 
 import '../authentication/providers/auth_provider.dart';
 import '../authentication/views/auth_wrapper.dart';
+import '../../core/database/sync_engine.dart';
 
 class GlobalDashboardScreen extends ConsumerStatefulWidget {
   const GlobalDashboardScreen({super.key});
@@ -18,6 +19,27 @@ class GlobalDashboardScreen extends ConsumerStatefulWidget {
 
 class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
   final LocalAuthentication auth = LocalAuthentication();
+  bool _isSyncing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _performInitialSync();
+  }
+
+  Future<void> _performInitialSync() async {
+    setState(() => _isSyncing = true);
+    
+    await SyncEngine.syncAll();
+    
+    if (mounted) {
+      final userId = ref.read(authProvider);
+      if (userId != null) {
+        ref.invalidate(companyProvider); 
+      }
+      setState(() => _isSyncing = false);
+    }
+  }
 
   Future<void> _promptPinAndLogin(BuildContext context, Company company, WidgetRef ref) async {
     final pinCtrl = TextEditingController();
@@ -32,7 +54,6 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
 
     if (canAuthenticateWithBiometrics && context.mounted) {
       try {
-        // --- FIX: Removed the 'options:' parameter causing the error ---
         final bool didAuthenticate = await auth.authenticate(
           localizedReason: 'Please authenticate to unlock ${company.name}',
         );
@@ -126,7 +147,6 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
                       icon: const Icon(Icons.fingerprint, size: 40, color: Colors.blueAccent),
                       onPressed: () async {
                         try {
-                          // --- FIX: Removed the 'options:' parameter here too ---
                           final bool didAuthenticate = await auth.authenticate(
                             localizedReason: 'Unlock ${company.name}',
                           );
@@ -179,17 +199,51 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
     );
   }
 
+  // --- GRADIENT GENERATOR FOR CARDS ---
+  List<Color> _getCompanyGradient(int index) {
+    final gradients = [
+      [const Color(0xFF4facfe), const Color(0xFF00f2fe)], // Blue
+      [const Color(0xFFff0844), const Color(0xFFffb199)], // Red/Orange
+      [const Color(0xFF43e97b), const Color(0xFF38f9d7)], // Green
+      [const Color(0xFFfa709a), const Color(0xFFfee140)], // Pink/Yellow
+      [const Color(0xFF667eea), const Color(0xFF764ba2)], // Purple
+    ];
+    return gradients[index % gradients.length];
+  }
+
   @override
   Widget build(BuildContext context) {
     final companies = ref.watch(companyProvider);
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade100, 
+      backgroundColor: const Color(0xFFF4F7FC), // Softer, more modern background color
       appBar: AppBar(
-        title: const Text('Workspaces', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Workspaces', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
+            if (_isSyncing) ...[
+              const SizedBox(width: 12),
+              const SizedBox(
+                height: 14, 
+                width: 14, 
+                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+              ),
+            ]
+          ],
+        ),
         centerTitle: true,
         elevation: 0,
-        backgroundColor: Colors.blueAccent,
+        backgroundColor: Colors.transparent, // Making AppBar transparent for a modern look
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
         foregroundColor: Colors.white,
         actions: [
           IconButton(
@@ -197,7 +251,6 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
             tooltip: 'Logout',
             onPressed: () async {
               await ref.read(authProvider.notifier).logout();
-              
               if (context.mounted) {
                 Navigator.pushAndRemoveUntil(
                   context,
@@ -209,10 +262,10 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
           )
         ],
       ),
-      body: companies.isEmpty
+      body: companies.isEmpty && !_isSyncing
           ? _buildEmptyState()
           : ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              padding: const EdgeInsets.only(left: 16, right: 16, top: 24, bottom: 100),
               itemCount: companies.length,
               itemBuilder: (context, index) {
                 final company = companies[index];
@@ -230,13 +283,39 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
                       ),
                     );
                   },
-                  child: _buildCompanyCard(context, company, ref),
+                  // Wrap the card in our new Hover widget
+                  child: HoverableCompanyCard(
+                    company: company,
+                    gradient: _getCompanyGradient(index),
+                    onTap: () => _promptPinAndLogin(context, company, ref),
+                    onEdit: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EditCompanyScreen(company: company))),
+                    onDelete: () {
+                      showDialog(
+                        context: context,
+                        builder: (dialogCtx) => AlertDialog(
+                          title: const Text('Delete Workspace?'),
+                          content: const Text('Are you sure? This will hide the company from your dashboard.'),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                              onPressed: () {
+                                ref.read(companyProvider.notifier).deleteCompany(company);
+                                Navigator.pop(dialogCtx);
+                              },
+                              child: const Text('Delete'),
+                            )
+                          ],
+                        )
+                      );
+                    },
+                  ),
                 );
               },
             ),
       floatingActionButton: FloatingActionButton.extended(
-        elevation: 4,
-        backgroundColor: Colors.blueAccent,
+        elevation: 8,
+        backgroundColor: const Color(0xFF0F2027),
         foregroundColor: Colors.white,
         onPressed: () {
           Navigator.push(
@@ -245,135 +324,7 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
           );
         },
         icon: const Icon(Icons.add_business_rounded),
-        label: const Text('New Company', style: TextStyle(fontWeight: FontWeight.bold)),
-      ),
-    );
-  }
-
-  Widget _buildCompanyCard(BuildContext context, Company company, WidgetRef ref) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: () => _promptPinAndLogin(context, company, ref),
-          
-          onLongPress: () {
-            showModalBottomSheet(
-              context: context,
-              builder: (ctx) => SafeArea(
-                child: Wrap(
-                  children: [
-                    ListTile(
-                      leading: const Icon(Icons.edit, color: Colors.blue),
-                      title: const Text('Edit Workspace Settings'),
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => EditCompanyScreen(company: company)));
-                      },
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      leading: const Icon(Icons.delete, color: Colors.red),
-                      title: const Text('Delete Workspace', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        showDialog(
-                          context: context,
-                          builder: (dialogCtx) => AlertDialog(
-                            title: const Text('Delete Workspace?'),
-                            content: const Text('Are you sure? This will hide the company from your dashboard.'),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
-                              ElevatedButton(
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                                onPressed: () {
-                                  ref.read(companyProvider.notifier).deleteCompany(company);
-                                  Navigator.pop(dialogCtx);
-                                },
-                                child: const Text('Delete'),
-                              )
-                            ],
-                          )
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-          
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                Container(
-                  height: 56,
-                  width: 56,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Colors.blueAccent, Colors.lightBlue],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Center(
-                    child: Icon(Icons.business_center_rounded, color: Colors.white, size: 28),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        company.name,
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        company.gstin.isNotEmpty ? 'GST: ${company.gstin}' : 'Bank: ${company.bankName}',
-                        style: TextStyle(fontSize: 13, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
-                      ),
-                    ],
-                  ),
-                ),
-                
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade50,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.lock_rounded, size: 14, color: Colors.green.shade700),
-                      const SizedBox(width: 4),
-                      Text('Secure', style: TextStyle(color: Colors.green.shade700, fontSize: 12, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                )
-              ],
-            ),
-          ),
-        ),
+        label: const Text('New Company', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5)),
       ),
     );
   }
@@ -396,19 +347,198 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.business_rounded, size: 100, color: Colors.grey.shade300),
-            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20)],
+              ),
+              child: Icon(Icons.cloud_sync_rounded, size: 80, color: Colors.blue.shade200),
+            ),
+            const SizedBox(height: 32),
             const Text(
               'No Workspaces Yet',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87),
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Color(0xFF203A43)),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Text(
-              'Tap the button below to register\nyour first company locally.',
+              'Tap the button below to register\nyour first company to the cloud.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: Colors.grey.shade500, height: 1.4),
+              style: TextStyle(fontSize: 16, color: Colors.grey.shade600, height: 1.5, fontWeight: FontWeight.w500),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// --- NEW: CUSTOM HOVER WIDGET ---
+class HoverableCompanyCard extends StatefulWidget {
+  final Company company;
+  final List<Color> gradient;
+  final VoidCallback onTap;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const HoverableCompanyCard({
+    super.key, 
+    required this.company, 
+    required this.gradient, 
+    required this.onTap, 
+    required this.onEdit, 
+    required this.onDelete
+  });
+
+  @override
+  State<HoverableCompanyCard> createState() => _HoverableCompanyCardState();
+}
+
+class _HoverableCompanyCardState extends State<HoverableCompanyCard> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _isHovered = true),
+        onTapUp: (_) {
+          setState(() => _isHovered = false);
+          widget.onTap();
+        },
+        onTapCancel: () => setState(() => _isHovered = false),
+        onLongPress: () {
+          // Keep the existing bottom sheet for editing/deleting
+          showModalBottomSheet(
+            context: context,
+            builder: (ctx) => SafeArea(
+              child: Wrap(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.edit, color: Colors.blue),
+                    title: const Text('Edit Workspace Settings'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      widget.onEdit();
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.delete, color: Colors.red),
+                    title: const Text('Delete Workspace', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      widget.onDelete();
+                    },
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          margin: const EdgeInsets.only(bottom: 16),
+          transform: Matrix4.identity()..scale(_isHovered ? 1.02 : 1.0),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: widget.gradient.first.withOpacity(_isHovered ? 0.3 : 0.08),
+                blurRadius: _isHovered ? 20 : 10,
+                offset: Offset(0, _isHovered ? 8 : 4),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: Stack(
+              children: [
+                // Decorative colorful bar on the left
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 8,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: widget.gradient,
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(20).copyWith(left: 28),
+                  child: Row(
+                    children: [
+                      Container(
+                        height: 60,
+                        width: 60,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: widget.gradient,
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.apartment_rounded, color: Colors.white, size: 28),
+                        ),
+                      ),
+                      const SizedBox(width: 20),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.company.name,
+                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Color(0xFF1A1A1A)),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                widget.company.gstin.isNotEmpty ? 'GST: ${widget.company.gstin}' : 'Bank: ${widget.company.bankName}',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: _isHovered ? widget.gradient.first.withOpacity(0.1) : Colors.grey.shade50,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.arrow_forward_ios_rounded, 
+                          size: 16, 
+                          color: _isHovered ? widget.gradient.first : Colors.grey.shade400
+                        ),
+                      )
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

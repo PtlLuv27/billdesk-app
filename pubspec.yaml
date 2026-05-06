@@ -2,7 +2,7 @@ name: billdesk
 description: "A new Flutter project."
 publish_to: 'none' 
 
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: ^3.9.2
@@ -31,6 +31,10 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   flutter_launcher_icons: ^0.14.4
+  supabase_flutter: ^2.12.4
+  app_links: ^6.4.1
+  windows_single_instance: ^1.1.0
+  protocol_handler: ^0.2.0
 
 dev_dependencies:
   flutter_launcher_icons: ^0.14.4
@@ -45,6 +49,11 @@ flutter_launcher_icons:
   ios: true
   image_path: "assets/images/icon.png"
   min_sdk_android: 21 
+
+  windows:
+    generate: true
+    image_path: "assets/images/icon.png" 
+    icon_size: 48
 
 flutter:
   uses-material-design: true

@@ -31,47 +31,71 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
   void _showAddPaymentDialog(bool isReceiving) {
     final amtCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
+    DateTime selectedDate = DateTime.now(); // Track the selected date
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 16, right: 16, top: 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(isReceiving ? 'Record Payment Received (Credit)' : 'Record Payment Made (Credit)', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Amount (₹)', border: OutlineInputBorder())),
-            const SizedBox(height: 10),
-            TextField(controller: noteCtrl, decoration: const InputDecoration(labelText: 'Notes (e.g. Cash, Cheque No.)', border: OutlineInputBorder())),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50), backgroundColor: isReceiving ? Colors.green : Colors.orange),
-              onPressed: () async {
-                if (amtCtrl.text.isEmpty) return;
-                
-                final currentUserId = ref.read(authProvider);
-                if (currentUserId == null) return;
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 16, right: 16, top: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(isReceiving ? 'Record Payment Received (Credit)' : 'Record Payment Made (Credit)', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Amount (₹)', border: OutlineInputBorder())),
+              const SizedBox(height: 10),
+              TextField(controller: noteCtrl, decoration: const InputDecoration(labelText: 'Notes (e.g. Cash, Cheque No.)', border: OutlineInputBorder())),
+              const SizedBox(height: 10),
+              
+              // --- NEW: DATE PICKER FIELD ---
+              InkWell(
+                onTap: () async {
+                  final pickedDate = await showDatePicker(context: context, initialDate: selectedDate, firstDate: DateTime(2000), lastDate: DateTime(2100));
+                  if (pickedDate != null) {
+                    final pickedTime = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(selectedDate));
+                    if (pickedTime != null) {
+                      setModalState(() {
+                        selectedDate = DateTime(pickedDate.year, pickedDate.month, pickedDate.day, pickedTime.hour, pickedTime.minute);
+                      });
+                    }
+                  }
+                },
+                child: InputDecorator(
+                  decoration: const InputDecoration(labelText: 'Date & Time', border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_month)),
+                  child: Text(DateFormat('dd MMM yyyy, hh:mm a').format(selectedDate)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50), backgroundColor: isReceiving ? Colors.green : Colors.orange),
+                onPressed: () async {
+                  if (amtCtrl.text.isEmpty) return;
+                  
+                  final currentUserId = ref.read(authProvider);
+                  if (currentUserId == null) return;
 
-                final company = ref.read(activeCompanyProvider);
-                final payment = Payment(
-                  id: const Uuid().v4(), 
-                  userId: currentUserId, 
-                  companyId: company!.id, 
-                  purchaserId: widget.purchaser.id,
-                  amount: double.parse(amtCtrl.text), 
-                  date: DateTime.now().millisecondsSinceEpoch,
-                  type: isReceiving ? 'received' : 'paid', 
-                  notes: noteCtrl.text,
-                );
-                await ref.read(paymentProvider.notifier).addPayment(payment);
-                if (mounted) Navigator.pop(context);
-              },
-              child: const Text('Save Payment', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            ),
-            const SizedBox(height: 20),
-          ],
+                  final company = ref.read(activeCompanyProvider);
+                  final payment = Payment(
+                    id: const Uuid().v4(), 
+                    userId: currentUserId, 
+                    companyId: company!.id, 
+                    purchaserId: widget.purchaser.id,
+                    amount: double.parse(amtCtrl.text), 
+                    date: selectedDate.millisecondsSinceEpoch, // Use the selected date here
+                    type: isReceiving ? 'received' : 'paid', 
+                    notes: noteCtrl.text,
+                  );
+                  await ref.read(paymentProvider.notifier).addPayment(payment);
+                  if (mounted) Navigator.pop(context);
+                },
+                child: const Text('Save Payment', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
@@ -81,52 +105,76 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
   void _showAddDebitDialog(bool isSalesMode) {
     final amtCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
+    DateTime selectedDate = DateTime.now(); // Track the selected date
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 16, right: 16, top: 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Record Manual Debit (Bill/Charge)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Amount (₹)', border: OutlineInputBorder())),
-            const SizedBox(height: 10),
-            TextField(controller: noteCtrl, decoration: const InputDecoration(labelText: 'Bill No. / Description', border: OutlineInputBorder())),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50), backgroundColor: Colors.blueAccent),
-              onPressed: () async {
-                if (amtCtrl.text.isEmpty) return;
-                
-                final currentUserId = ref.read(authProvider);
-                if (currentUserId == null) return;
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 16, right: 16, top: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Record Manual Debit (Bill/Charge)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Amount (₹)', border: OutlineInputBorder())),
+              const SizedBox(height: 10),
+              TextField(controller: noteCtrl, decoration: const InputDecoration(labelText: 'Bill No. / Description', border: OutlineInputBorder())),
+              const SizedBox(height: 10),
 
-                final company = ref.read(activeCompanyProvider);
-                final amt = double.parse(amtCtrl.text);
-                
-                final invoice = Invoice(
-                  id: const Uuid().v4(),
-                  userId: currentUserId,
-                  companyId: company!.id,
-                  type: isSalesMode ? 'sales' : 'purchase',
-                  purchaserId: widget.purchaser.id,
-                  billNo: noteCtrl.text.isEmpty ? 'MANUAL' : noteCtrl.text,
-                  billDate: DateTime.now().millisecondsSinceEpoch,
-                  truckNo: '', driverName: '', licNo: '', nos: 1, unit: 'NA', quantity: 1, 
-                  rate: amt, amount: amt, labourCharge: 0, subTotal: amt, gstAmount: 0, totalAmount: amt, 
-                  lastUpdated: DateTime.now().millisecondsSinceEpoch,
-                );
-                
-                await ref.read(invoiceProvider.notifier).addInvoice(invoice);
-                if (mounted) Navigator.pop(context);
-              },
-              child: const Text('Save Debit Entry', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            ),
-            const SizedBox(height: 20),
-          ],
+              // --- NEW: DATE PICKER FIELD ---
+              InkWell(
+                onTap: () async {
+                  final pickedDate = await showDatePicker(context: context, initialDate: selectedDate, firstDate: DateTime(2000), lastDate: DateTime(2100));
+                  if (pickedDate != null) {
+                    final pickedTime = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(selectedDate));
+                    if (pickedTime != null) {
+                      setModalState(() {
+                        selectedDate = DateTime(pickedDate.year, pickedDate.month, pickedDate.day, pickedTime.hour, pickedTime.minute);
+                      });
+                    }
+                  }
+                },
+                child: InputDecorator(
+                  decoration: const InputDecoration(labelText: 'Date & Time', border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_month)),
+                  child: Text(DateFormat('dd MMM yyyy, hh:mm a').format(selectedDate)),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50), backgroundColor: Colors.blueAccent),
+                onPressed: () async {
+                  if (amtCtrl.text.isEmpty) return;
+                  
+                  final currentUserId = ref.read(authProvider);
+                  if (currentUserId == null) return;
+
+                  final company = ref.read(activeCompanyProvider);
+                  final amt = double.parse(amtCtrl.text);
+                  
+                  final invoice = Invoice(
+                    id: const Uuid().v4(),
+                    userId: currentUserId,
+                    companyId: company!.id,
+                    type: isSalesMode ? 'sales' : 'purchase',
+                    purchaserId: widget.purchaser.id,
+                    billNo: noteCtrl.text.isEmpty ? 'MANUAL' : noteCtrl.text,
+                    billDate: selectedDate.millisecondsSinceEpoch, // Use the selected date here
+                    truckNo: '', driverName: '', licNo: '', nos: 1, unit: 'NA', quantity: 1, 
+                    rate: amt, amount: amt, labourCharge: 0, subTotal: amt, gstAmount: 0, totalAmount: amt, 
+                    lastUpdated: DateTime.now().millisecondsSinceEpoch,
+                  );
+                  
+                  await ref.read(invoiceProvider.notifier).addInvoice(invoice);
+                  if (mounted) Navigator.pop(context);
+                },
+                child: const Text('Save Debit Entry', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
@@ -471,7 +519,7 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
                   leading: const Icon(Icons.delete, color: Colors.red),
                   title: const Text('Delete Transaction', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
                   onTap: () {
-                    ref.read(invoiceProvider.notifier).deleteInvoice(i.id);
+                    ref.read(invoiceProvider.notifier).deleteInvoice(i); // Pass the whole object!
                     Navigator.pop(ctx);
                   },
                 ),

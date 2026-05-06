@@ -164,7 +164,7 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
             if (!_isCustomVendor)
               DropdownButtonFormField<Purchaser>(
                 decoration: const InputDecoration(labelText: 'Select Vendor/Supplier', border: OutlineInputBorder()),
-                value: _selectedVendor,
+                initialValue: _selectedVendor,
                 items: vendors.map((v) => DropdownMenuItem(value: v, child: Text(v.name))).toList(),
                 onChanged: (val) {
                   setState(() {
