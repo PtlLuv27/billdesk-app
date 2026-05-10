@@ -225,7 +225,7 @@ class PdfGenerator {
                     textAlign: pw.TextAlign.center,
                     style: pw.TextStyle(
                       fontWeight: pw.FontWeight.bold,
-                      fontSize: 9,
+                      fontSize: 11,
                     ),
                   ),
                 ),
@@ -254,7 +254,7 @@ class PdfGenerator {
                   ),
                 ),
 
-                // ── 9. PARTY DETAILS TABLE (FIXED TIGHT ROW HEIGHTS) ──
+                // ── 9. PARTY DETAILS TABLE ──
                 pw.Table(
                   border: const pw.TableBorder(
                     bottom: heavyBorder,
@@ -267,7 +267,6 @@ class PdfGenerator {
                     3: const pw.FlexColumnWidth(3),
                   },
                   children: [
-                    // ROW 1
                     pw.TableRow(
                       children: [
                         _cell(
@@ -295,13 +294,11 @@ class PdfGenerator {
                       ],
                     ),
 
-                    // ROW 2 → ADDRESS TOP
                     pw.TableRow(
                       children: [
                         pw.Container(
                           padding: const pw.EdgeInsets.only(
-                            top:
-                                13, // ← adjust this value to taste (8–14 works well)
+                            top: 13, 
                             left: 5,
                             right: 5,
                           ),
@@ -314,7 +311,7 @@ class PdfGenerator {
                               decoration: pw.TextDecoration.underline,
                             ),
                           ),
-                        ), // no border
+                        ),
                         _cell(
                           purchaser.address1.toUpperCase(),
                           decoration: bottomLight,
@@ -333,13 +330,12 @@ class PdfGenerator {
                       ],
                     ),
 
-                    // ROW 3 → ADDRESS BOTTOM (NO BORDER ON LEFT!)
                     pw.TableRow(
                       children: [
                         pw.Container(
                           padding: const pw.EdgeInsets.only(
                             top: -2,
-                            bottom: -2, // ← reduced
+                            bottom: -2,
                             left: 5,
                             right: 5,
                           ),
@@ -347,7 +343,7 @@ class PdfGenerator {
                         pw.Container(
                           padding: const pw.EdgeInsets.only(
                             top: -2,
-                            bottom: -2, // ← reduced
+                            bottom: -2, 
                             left: 5,
                             right: 5,
                           ),
@@ -364,7 +360,7 @@ class PdfGenerator {
                         pw.Container(
                           padding: const pw.EdgeInsets.only(
                             top: -2,
-                            bottom: -2, // ← reduced
+                            bottom: -2, 
                             left: 5,
                             right: 5,
                           ),
@@ -381,7 +377,7 @@ class PdfGenerator {
                         pw.Container(
                           padding: const pw.EdgeInsets.only(
                             top: -2,
-                            bottom: -2, // ← reduced
+                            bottom: -2,
                             left: 5,
                             right: 5,
                           ),
@@ -397,7 +393,6 @@ class PdfGenerator {
                         ),
                       ],
                     ),
-                    // ROW 4 → GSTIN (ADD TOP BORDER HERE)
                     pw.TableRow(
                       children: [
                         _cell(
@@ -406,7 +401,7 @@ class PdfGenerator {
                           decoration: const pw.BoxDecoration(
                             border: pw.Border(
                               top: pw.BorderSide(width: 1),
-                            ), // 🔥 FIX HERE
+                            ), 
                           ),
                           verticalPadding: 1,
                         ),
@@ -416,7 +411,7 @@ class PdfGenerator {
                           decoration: const pw.BoxDecoration(
                             border: pw.Border(
                               top: pw.BorderSide(width: 1),
-                            ), // 🔥 MATCH RIGHT SIDE
+                            ), 
                           ),
                           verticalPadding: 1,
                         ),
@@ -493,19 +488,31 @@ class PdfGenerator {
 
                     pw.TableRow(
                       children: [
+                        // --- 🔥 THE MAGIC HAPPENS HERE: DYNAMIC MULTI-LINE ITEMS ---
                         pw.Padding(
                           padding: const pw.EdgeInsets.symmetric(
                             vertical: 12,
                             horizontal: 6,
                           ),
-                          child: pw.Text(
-                            purchaser.particulars.toUpperCase(),
-                            textAlign: pw.TextAlign.center,
-                            style: pw.TextStyle(
-                              fontWeight: pw.FontWeight.bold,
-                              fontSize: 11,
-                              decoration: pw.TextDecoration.underline,
-                            ),
+                          child: pw.Column(
+                            crossAxisAlignment: pw.CrossAxisAlignment.center,
+                            children: purchaser.particulars
+                                .split(',')
+                                .map((e) => e.trim())
+                                .where((e) => e.isNotEmpty)
+                                .map((item) => pw.Padding(
+                                      padding: const pw.EdgeInsets.only(bottom: 6),
+                                      child: pw.Text(
+                                        item.toUpperCase(),
+                                        textAlign: pw.TextAlign.center,
+                                        style: pw.TextStyle(
+                                          fontWeight: pw.FontWeight.bold,
+                                          fontSize: 11,
+                                          decoration: pw.TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ))
+                                .toList(),
                           ),
                         ),
                         _cell(

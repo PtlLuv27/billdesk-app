@@ -43,7 +43,11 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
   late TextEditingController _purAdd1Ctrl;
   late TextEditingController _purAdd2Ctrl;
   late TextEditingController _gstinCtrl;
+  
+  // --- NEW: DYNAMIC PARTICULARS CONTROLLERS ---
   late TextEditingController _particularsCtrl;
+  List<TextEditingController> _extraParticularCtrls = [];
+
   late TextEditingController _hsnCtrl;
   late TextEditingController _sgstCtrl;
   late TextEditingController _cgstCtrl;
@@ -77,7 +81,16 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     _purAdd1Ctrl = TextEditingController(text: widget.purchaser.address1);
     _purAdd2Ctrl = TextEditingController(text: widget.purchaser.address2);
     _gstinCtrl = TextEditingController(text: widget.purchaser.gstin);
-    _particularsCtrl = TextEditingController(text: widget.purchaser.particulars);
+
+    // --- NEW: PARSE COMMA-SEPARATED PARTICULARS ON LOAD ---
+    final parts = widget.purchaser.particulars.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    if (parts.isNotEmpty) {
+      _particularsCtrl = TextEditingController(text: parts.first);
+      _extraParticularCtrls = parts.skip(1).map((e) => TextEditingController(text: e)).toList();
+    } else {
+      _particularsCtrl = TextEditingController(text: '');
+    }
+
     _hsnCtrl = TextEditingController(text: widget.purchaser.hsnNo);
     _sgstCtrl = TextEditingController(text: widget.purchaser.sgstRate.toString());
     _cgstCtrl = TextEditingController(text: widget.purchaser.cgstRate.toString());
@@ -108,7 +121,13 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     _purAdd1Ctrl.dispose();
     _purAdd2Ctrl.dispose();
     _gstinCtrl.dispose();
+    
+    // Clean up dynamic controllers safely
     _particularsCtrl.dispose();
+    for (var ctrl in _extraParticularCtrls) {
+      ctrl.dispose();
+    }
+
     _hsnCtrl.dispose();
     _sgstCtrl.dispose();
     _cgstCtrl.dispose();
@@ -140,9 +159,15 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
   Future<Map<String, dynamic>> _saveAllChanges() async {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
 
+    // --- NEW: COMBINE ALL PARTICULARS INTO A COMMA-SEPARATED STRING ---
+    final combinedParticulars = [
+      _particularsCtrl.text.trim(),
+      ..._extraParticularCtrls.map((c) => c.text.trim())
+    ].where((e) => e.isNotEmpty).join(', ');
+
     final updatedInvoice = Invoice(
       id: widget.invoice.id, 
-      userId: widget.invoice.userId, // <-- ADDED USER ID
+      userId: widget.invoice.userId, 
       companyId: widget.company.id, 
       type: widget.invoice.type,
       purchaserId: widget.purchaser.id, 
@@ -166,11 +191,11 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
 
     final updatedPurchaser = Purchaser(
       id: widget.purchaser.id, 
-      userId: widget.purchaser.userId, // <-- ADDED USER ID
+      userId: widget.purchaser.userId,
       name: _purNameCtrl.text.trim(), 
       address1: _purAdd1Ctrl.text.trim(),
       address2: _purAdd2Ctrl.text.trim(), 
-      particulars: _particularsCtrl.text.trim(), 
+      particulars: combinedParticulars, // <-- Save combined string!
       gstin: _gstinCtrl.text.trim(),
       hsnNo: _hsnCtrl.text.trim(), 
       sgstRate: double.tryParse(_sgstCtrl.text) ?? 0.0, 
@@ -182,7 +207,7 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
 
     final updatedCompany = Company(
       id: widget.company.id, 
-      userId: widget.company.userId, // <-- ADDED USER ID
+      userId: widget.company.userId,
       name: _compNameCtrl.text.trim(), 
       address1: widget.company.address1,
       address2: widget.company.address2, 
@@ -217,7 +242,6 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     );
   }
 
-  // --- UPGRADED CELL WITH KEYBOARD NAVIGATION ---
   Widget _editableCell(TextEditingController controller, {bool isNumber = false, TextAlign align = TextAlign.center, FontWeight weight = FontWeight.normal, double vPad = 6}) {
     return Focus(
       onKeyEvent: (node, event) {
@@ -236,7 +260,7 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
         controller: controller,
         textAlign: align,
         keyboardType: isNumber ? TextInputType.number : TextInputType.text,
-        textInputAction: TextInputAction.next, // Allows Enter key to jump
+        textInputAction: TextInputAction.next, 
         onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
         decoration: InputDecoration(border: InputBorder.none, isDense: true, contentPadding: EdgeInsets.symmetric(vertical: vPad, horizontal: 4)),
         onChanged: (_) => _recalculate(),
@@ -245,9 +269,49 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     );
   }
 
+  // --- NEW: CUSTOM DYNAMIC PARTICULARS CELL ---
+  Widget _dynamicParticularsCell() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(child: _editableCell(_particularsCtrl, weight: FontWeight.bold, align: TextAlign.left, vPad: 2)),
+              InkWell(
+                onTap: () {
+                  setState(() {
+                    _extraParticularCtrls.add(TextEditingController());
+                  });
+                },
+                child: const Icon(Icons.add_circle, color: Colors.blueAccent, size: 16),
+              )
+            ],
+          ),
+          ...List.generate(_extraParticularCtrls.length, (index) {
+            return Row(
+              children: [
+                Expanded(child: _editableCell(_extraParticularCtrls[index], weight: FontWeight.bold, align: TextAlign.left, vPad: 2)),
+                InkWell(
+                  onTap: () {
+                    setState(() {
+                      _extraParticularCtrls[index].dispose();
+                      _extraParticularCtrls.removeAt(index);
+                    });
+                  },
+                  child: const Icon(Icons.remove_circle, color: Colors.redAccent, size: 16),
+                )
+              ],
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Calculate GST Amounts for display
     double sgstAmt = (_subTotal * (double.tryParse(_sgstCtrl.text) ?? 0) / 100).roundToDouble();
     double cgstAmt = (_subTotal * (double.tryParse(_cgstCtrl.text) ?? 0) / 100).roundToDouble();
     double igstAmt = (_subTotal * (double.tryParse(_igstCtrl.text) ?? 0) / 100).roundToDouble();
@@ -303,7 +367,8 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
                   ),
                   TableRow(
                     children: [
-                      _editableCell(_particularsCtrl, weight: FontWeight.bold, align: TextAlign.left),
+                      // --- REPLACED STATIC CELL WITH DYNAMIC WIDGET ---
+                      _dynamicParticularsCell(),
                       _editableCell(_hsnCtrl, weight: FontWeight.bold),
                       _editableCell(_nosCtrl, isNumber: true, weight: FontWeight.bold),
                       _editableCell(_qtyCtrl, isNumber: true, weight: FontWeight.bold),

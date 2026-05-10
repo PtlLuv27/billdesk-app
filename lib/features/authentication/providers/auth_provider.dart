@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+// --- ADD THIS IMPORT (Adjust path if necessary) ---
+import '../../../core/services/secure_storage_service.dart';
 
 class AuthNotifier extends Notifier<String?> {
   final _supabase = Supabase.instance.client;
@@ -9,6 +11,8 @@ class AuthNotifier extends Notifier<String?> {
     // Automatically listen for login/logout events from Supabase
     _supabase.auth.onAuthStateChange.listen((data) {
       final Session? session = data.session;
+      // We removed the secure storage code from here!
+      // Now it only focuses on updating the Riverpod UI state.
       state = session?.user.id;
     });
     
@@ -20,7 +24,7 @@ class AuthNotifier extends Notifier<String?> {
   Future<String?> login(String email, String password) async {
     try {
       await _supabase.auth.signInWithPassword(email: email.trim(), password: password);
-      return null; // Success
+      return null; // Success (Listener above will catch the token!)
     } on AuthException catch (e) {
       return e.message;
     } catch (e) {
@@ -47,16 +51,11 @@ class AuthNotifier extends Notifier<String?> {
   // --- 3. FORGOT PASSWORD LOGIC ---
   Future<String?> sendPasswordResetEmail(String email) async {
     try {
-      // await _supabase.auth.resetPasswordForEmail(
-      //   email.trim(),
-      //   // --- THE FIX: Tell the email to link back to the app! ---
-      //   redirectTo: 'io.supabase.billdesk://login-callback/', 
-      // );
-      await Supabase.instance.client.auth.resetPasswordForEmail(
-  email,
-  // THIS TELLS THE EMAIL LINK TO OPEN THE APP
-  redirectTo: 'io.supabase.billdesk://login-callback/', 
-);
+      await _supabase.auth.resetPasswordForEmail(
+        email.trim(), // Added trim here just to be safe
+        // THIS TELLS THE EMAIL LINK TO OPEN THE APP
+        redirectTo: 'io.supabase.billdesk://login-callback/', 
+      );
       return null; // Success
     } on AuthException catch (e) {
       return e.message;
@@ -73,7 +72,7 @@ class AuthNotifier extends Notifier<String?> {
         // Add the trailing slash here so it matches the dashboard exactly!
         redirectTo: 'io.supabase.billdesk://login-callback/', 
       );
-      return null;
+      return null; // Success (Listener above will catch the token when browser redirects back!)
     } on AuthException catch (e) {
       return e.message;
     } catch (e) {
@@ -83,6 +82,8 @@ class AuthNotifier extends Notifier<String?> {
 
   // --- 5. LOGOUT ---
   Future<void> logout() async {
+    // Only signs out of the CURRENT active session. 
+    // It purposefully leaves the tokens safely in Secure Storage so you can swap back later!
     await _supabase.auth.signOut();
   }
 }

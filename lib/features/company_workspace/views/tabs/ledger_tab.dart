@@ -240,7 +240,7 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         decoration: const InputDecoration(labelText: 'Transaction Type', isDense: true, border: OutlineInputBorder()),
-                        value: _typeFilter,
+                        initialValue: _typeFilter,
                         items: ['Both', 'Sales Only', 'Purchase Only'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                         onChanged: (val) => setState(() => _typeFilter = val!),
                       ),
@@ -249,7 +249,7 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         decoration: const InputDecoration(labelText: 'Tax Setting', isDense: true, border: OutlineInputBorder()),
-                        value: _taxFilter,
+                        initialValue: _taxFilter,
                         items: ['With GST', 'Without GST'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                         onChanged: (val) => setState(() => _taxFilter = val!),
                       ),
@@ -265,7 +265,7 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.person_search),
                   ),
-                  value: _selectedPurchaserId,
+                  initialValue: _selectedPurchaserId,
                   isExpanded: true, 
                   items: [
                     const DropdownMenuItem(value: null, child: Text('All Parties', style: TextStyle(fontWeight: FontWeight.bold))),

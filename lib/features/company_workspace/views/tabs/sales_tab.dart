@@ -28,6 +28,10 @@ class _SalesTabState extends ConsumerState<SalesTab> {
   final _partyAddressCtrl = TextEditingController();
   final _partyAddress2Ctrl = TextEditingController();
   final _partyParticularsCtrl = TextEditingController();
+  
+  // --- NEW: LIST FOR EXTRA ITEMS ---
+  List<TextEditingController> _extraParticularCtrls = [];
+
   final _partyGstinCtrl = TextEditingController();
   final _partyHsnNoCtrl = TextEditingController();
   final _partySgstCtrl = TextEditingController();
@@ -63,7 +67,6 @@ class _SalesTabState extends ConsumerState<SalesTab> {
   }
 
   // --- NEW: BULLETPROOF NUMBER PARSER ---
-  // This automatically replaces commas with dots to prevent math errors!
   double _parseNumber(String val) {
     if (val.isEmpty) return 0.0;
     return double.tryParse(val.replaceAll(',', '.')) ?? 0.0;
@@ -74,6 +77,12 @@ class _SalesTabState extends ConsumerState<SalesTab> {
     _partyAddressCtrl.dispose();
     _partyAddress2Ctrl.dispose();
     _partyParticularsCtrl.dispose();
+    
+    // Clean up dynamic controllers
+    for (var ctrl in _extraParticularCtrls) {
+      ctrl.dispose();
+    }
+    
     _partyGstinCtrl.dispose();
     _partyHsnNoCtrl.dispose();
     _partySgstCtrl.dispose();
@@ -93,7 +102,6 @@ class _SalesTabState extends ConsumerState<SalesTab> {
 
   void _calculateTotals() {
     setState(() {
-      // Using the bulletproof parser
       double qty = _parseNumber(_quantityController.text);
       double rate = _parseNumber(_rateController.text);
       double labour = _parseNumber(_labourController.text);
@@ -102,12 +110,10 @@ class _SalesTabState extends ConsumerState<SalesTab> {
       _subTotal = (_amount + labour).roundToDouble();
       
       if (_selectedPurchaser != null) {
-        // Read GST values using the bulletproof parser
         double sgst = _parseNumber(_partySgstCtrl.text);
         double cgst = _parseNumber(_partyCgstCtrl.text);
         double igst = _parseNumber(_partyIgstCtrl.text);
         
-        // Calculate individual amounts
         _sgstAmount = (_subTotal * (sgst / 100)).roundToDouble();
         _cgstAmount = (_subTotal * (cgst / 100)).roundToDouble();
         _igstAmount = (_subTotal * (igst / 100)).roundToDouble();
@@ -151,18 +157,24 @@ class _SalesTabState extends ConsumerState<SalesTab> {
       final activeCompany = ref.read(activeCompanyProvider);
       if (activeCompany == null) return;
 
+      // --- NEW: COMBINE ALL PARTICULARS INTO A COMMA-SEPARATED STRING ---
+      final combinedParticulars = [
+        _partyParticularsCtrl.text.trim(),
+        ..._extraParticularCtrls.map((c) => c.text.trim())
+      ].where((e) => e.isNotEmpty).join(', ');
+
       final updatedPurchaser = Purchaser(
         id: _selectedPurchaser!.id,
         userId: _selectedPurchaser!.userId,
         name: _selectedPurchaser!.name,
         address1: _partyAddressCtrl.text.trim(), 
         address2: _partyAddress2Ctrl.text.trim(),
-        particulars: _partyParticularsCtrl.text.trim(),
+        particulars: combinedParticulars, // Save combined string!
         gstin: _partyGstinCtrl.text.trim(),      
         hsnNo: _partyHsnNoCtrl.text.trim(),
-        sgstRate: _parseNumber(_partySgstCtrl.text), // Uses bulletproof parser
-        cgstRate: _parseNumber(_partyCgstCtrl.text), // Uses bulletproof parser
-        igstRate: _parseNumber(_partyIgstCtrl.text), // Uses bulletproof parser
+        sgstRate: _parseNumber(_partySgstCtrl.text), 
+        cgstRate: _parseNumber(_partyCgstCtrl.text), 
+        igstRate: _parseNumber(_partyIgstCtrl.text), 
         lastUpdated: DateTime.now().millisecondsSinceEpoch,
       );
 
@@ -181,10 +193,10 @@ class _SalesTabState extends ConsumerState<SalesTab> {
         licNo: _licNoController.text.trim(), 
         nos: int.tryParse(_nosController.text) ?? 1,
         unit: _selectedUnit,
-        quantity: _parseNumber(_quantityController.text), // Uses bulletproof parser
-        rate: _parseNumber(_rateController.text),         // Uses bulletproof parser
+        quantity: _parseNumber(_quantityController.text),
+        rate: _parseNumber(_rateController.text),        
         amount: _amount,
-        labourCharge: _parseNumber(_labourController.text), // Uses bulletproof parser
+        labourCharge: _parseNumber(_labourController.text), 
         subTotal: _subTotal,
         gstAmount: _gstAmount,
         totalAmount: _totalAmount,
@@ -213,6 +225,10 @@ class _SalesTabState extends ConsumerState<SalesTab> {
           _partyAddressCtrl.clear();
           _partyAddress2Ctrl.clear();
           _partyParticularsCtrl.clear();
+          
+          for (var ctrl in _extraParticularCtrls) { ctrl.dispose(); }
+          _extraParticularCtrls.clear();
+          
           _partyGstinCtrl.clear();
           _partyHsnNoCtrl.clear();
           _partySgstCtrl.clear();
@@ -264,7 +280,22 @@ class _SalesTabState extends ConsumerState<SalesTab> {
                       if (val != null) {
                         _partyAddressCtrl.text = val.address1;
                         _partyAddress2Ctrl.text = val.address2;
-                        _partyParticularsCtrl.text = val.particulars;
+
+                        // --- NEW: PARSE COMMA-SEPARATED PARTICULARS ---
+                        final parts = val.particulars.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+                        
+                        // Clear old extra controllers safely
+                        for (var ctrl in _extraParticularCtrls) { ctrl.dispose(); }
+                        _extraParticularCtrls.clear();
+
+                        if (parts.isNotEmpty) {
+                          _partyParticularsCtrl.text = parts.first; // First item remains default
+                          // The rest become dynamic text fields
+                          _extraParticularCtrls = parts.skip(1).map((e) => TextEditingController(text: e)).toList();
+                        } else {
+                          _partyParticularsCtrl.text = '';
+                        }
+
                         _partyGstinCtrl.text = val.gstin;
                         _partyHsnNoCtrl.text = val.hsnNo;
                         _partySgstCtrl.text = val.sgstRate.toString();
@@ -297,12 +328,72 @@ class _SalesTabState extends ConsumerState<SalesTab> {
                     ),
                     const SizedBox(height: 8),
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(flex: 2, child: TextFormField(controller: _partyParticularsCtrl, decoration: const InputDecoration(labelText: 'Default Item / Particulars', isDense: true, filled: true, fillColor: Colors.white))),
+                        // --- NEW: DEFAULT ITEM WITH PLUS ICON ---
+                        Expanded(
+                          flex: 2, 
+                          child: TextFormField(
+                            controller: _partyParticularsCtrl, 
+                            decoration: InputDecoration(
+                              labelText: 'Default Item / Particulars', 
+                              isDense: true, 
+                              filled: true, 
+                              fillColor: Colors.white,
+                              suffixIcon: IconButton(
+                                icon: const Icon(Icons.add_circle, color: Colors.blueAccent),
+                                onPressed: () {
+                                  setState(() {
+                                    // Add a new empty controller to the list
+                                    _extraParticularCtrls.add(TextEditingController());
+                                  });
+                                }
+                              )
+                            )
+                          )
+                        ),
                         const SizedBox(width: 8),
                         Expanded(child: TextFormField(controller: _partyHsnNoCtrl, decoration: const InputDecoration(labelText: 'HSN No.', isDense: true, filled: true, fillColor: Colors.white))),
                       ],
                     ),
+                    
+                    // --- NEW: DYNAMIC LIST OF ADDED ITEMS ---
+                    if (_extraParticularCtrls.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      ...List.generate(_extraParticularCtrls.length, (index) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8.0),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                flex: 2,
+                                child: TextFormField(
+                                  controller: _extraParticularCtrls[index],
+                                  decoration: InputDecoration(
+                                    labelText: 'Additional Item ${index + 1}',
+                                    isDense: true,
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    suffixIcon: IconButton(
+                                      icon: const Icon(Icons.remove_circle, color: Colors.redAccent),
+                                      onPressed: () {
+                                        setState(() {
+                                          _extraParticularCtrls[index].dispose();
+                                          _extraParticularCtrls.removeAt(index);
+                                        });
+                                      }
+                                    )
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Expanded(child: SizedBox()), // Keeps layout balanced with HSN No.
+                            ],
+                          )
+                        );
+                      })
+                    ],
+
                     const SizedBox(height: 8),
                     TextFormField(controller: _partyGstinCtrl, decoration: const InputDecoration(labelText: 'GSTIN', isDense: true, filled: true, fillColor: Colors.white), textCapitalization: TextCapitalization.characters),
                     const SizedBox(height: 8),
