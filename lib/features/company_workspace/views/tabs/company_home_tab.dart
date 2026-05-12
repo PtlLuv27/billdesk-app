@@ -11,8 +11,6 @@ import '../../providers/payment_provider.dart';
 import '../../providers/purchaser_provider.dart';
 import '../edit_company_screen.dart';
 import '../../../dashboard/global_dashboard_screen.dart'; 
-
-// --- NEW IMPORT: Adjust this path if your account_detail_screen is located elsewhere ---
 import '../account_detail_screen.dart'; 
 
 class CompanyHomeTab extends ConsumerStatefulWidget {
@@ -46,19 +44,31 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
 
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
-    final startOfMonth = DateTime(now.year, now.month, 1);
     
-    // --- 1. KPI CALCULATION ---
+    // --- DETERMINE BUSINESS YEAR (APRIL 1 to MARCH 31) ---
+    final int startYear = now.month >= 4 ? now.year : now.year - 1;
+    final int endYear = startYear + 1;
+    
+    final businessStart = DateTime(startYear, 4, 1);
+    final businessEnd = DateTime(endYear, 3, 31, 23, 59, 59);
+    
+    final businessYearLabel = "Business Year : $startYear-${endYear.toString().substring(2)}";
+
+    // --- 1. KPI CALCULATION (Filtered by Business Year) ---
     double todaySales = 0.0;
     double todayPurchases = 0.0;
-    double monthSales = 0.0;
-    double monthPurchases = 0.0;
+    double yearSales = 0.0;
+    double yearPurchases = 0.0;
 
     for (var inv in allInvoices) {
       if (_analyticsFilter == 'Sales' && inv.type != 'sales') continue;
       if (_analyticsFilter == 'Purchase' && inv.type != 'purchase') continue;
 
       final invDate = DateTime.fromMillisecondsSinceEpoch(inv.billDate);
+      
+      // Skip if invoice is outside the current business year
+      if (invDate.isBefore(businessStart) || invDate.isAfter(businessEnd)) continue;
+
       double amt = inv.totalAmount;
 
       if (!invDate.isBefore(startOfDay)) {
@@ -66,27 +76,26 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
         if (inv.type == 'purchase') todayPurchases += amt;
       }
       
-      if (!invDate.isBefore(startOfMonth)) {
-        if (inv.type == 'sales') monthSales += amt;
-        if (inv.type == 'purchase') monthPurchases += amt;
-      }
+      if (inv.type == 'sales') yearSales += amt;
+      if (inv.type == 'purchase') yearPurchases += amt;
     }
 
     double todayNet = _analyticsFilter == 'Purchase' ? todayPurchases : (_analyticsFilter == 'Sales' ? todaySales : todaySales - todayPurchases);
-    double monthNet = _analyticsFilter == 'Purchase' ? monthPurchases : (_analyticsFilter == 'Sales' ? monthSales : monthSales - monthPurchases);
+    double yearNet = _analyticsFilter == 'Purchase' ? yearPurchases : (_analyticsFilter == 'Sales' ? yearSales : yearSales - yearPurchases);
 
-    // --- 2. BAR CHART CALCULATION ---
-    List<String> monthLabels = List.generate(6, (i) => DateFormat('MMM').format(DateTime(now.year, now.month - 5 + i)));
-    List<double> monthlySales = List.filled(6, 0.0);
-    List<double> monthlyPurchases = List.filled(6, 0.0);
+    // --- 2. BAR CHART CALCULATION (Current Business Year: Apr to Mar) ---
+    List<String> monthLabels = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'];
+    List<double> monthlySales = List.filled(12, 0.0);
+    List<double> monthlyPurchases = List.filled(12, 0.0);
     double maxChartValue = 1000; 
 
     for (var inv in allInvoices) {
       final date = DateTime.fromMillisecondsSinceEpoch(inv.billDate);
-      final monthDiff = (now.year - date.year) * 12 + now.month - date.month;
       
-      if (monthDiff >= 0 && monthDiff < 6) {
-        final index = 5 - monthDiff; 
+      if (!date.isBefore(businessStart) && !date.isAfter(businessEnd)) {
+        // Map month to index: Apr (4) -> 0, May (5) -> 1, ..., Mar (3) -> 11
+        final index = date.month >= 4 ? date.month - 4 : date.month + 8;
+        
         if (inv.type == 'sales') monthlySales[index] += inv.totalAmount;
         if (inv.type == 'purchase') monthlyPurchases[index] += inv.totalAmount;
         
@@ -95,32 +104,59 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
       }
     }
 
-    // --- 3. PIE CHART CALCULATION ---
+    // --- COLOR SCHEMES (SWAPPED AS REQUESTED) ---
+    // Top Receivables now gets the vibrant/teal scheme
+    List<Color> debtorColors = [Colors.tealAccent.shade400, Colors.lightGreenAccent.shade400, Colors.cyanAccent.shade400, Colors.indigoAccent, Colors.purpleAccent];
+    // Top Performance now gets the multi-color accent scheme
+    List<Color> perfColors = [Colors.blueAccent, Colors.pinkAccent, Colors.amber, Colors.greenAccent, Colors.deepPurpleAccent];
+
+    // --- 3. PIE CHART: TOP DEBTORS (Current Business Year) ---
     Map<String, double> pieBalances = {};
     for (var inv in allInvoices.where((i) => i.type == 'sales' && i.purchaserId != null)) {
-      pieBalances[inv.purchaserId!] = (pieBalances[inv.purchaserId!] ?? 0) + inv.totalAmount;
+      final date = DateTime.fromMillisecondsSinceEpoch(inv.billDate);
+      if (!date.isBefore(businessStart) && !date.isAfter(businessEnd)) {
+        pieBalances[inv.purchaserId!] = (pieBalances[inv.purchaserId!] ?? 0) + inv.totalAmount;
+      }
     }
     for (var pay in allPayments.where((p) => p.type == 'received')) {
-      pieBalances[pay.purchaserId] = (pieBalances[pay.purchaserId] ?? 0) - pay.amount;
+      final date = DateTime.fromMillisecondsSinceEpoch(pay.date);
+      if (!date.isBefore(businessStart) && !date.isAfter(businessEnd)) {
+        pieBalances[pay.purchaserId] = (pieBalances[pay.purchaserId] ?? 0) - pay.amount;
+      }
     }
     var top5Debtors = pieBalances.entries.where((e) => e.value > 0).toList()..sort((a, b) => b.value.compareTo(a.value));
     top5Debtors = top5Debtors.take(5).toList();
-    List<Color> pieColors = [Colors.blueAccent, Colors.pinkAccent, Colors.amber, Colors.greenAccent, Colors.deepPurpleAccent];
 
-    // --- 4. ALL PARTIES CALCULATION (UPDATED) ---
+    // --- 4. PIE CHART: TOP PERFORMANCE (Sales within Business Year) ---
+    Map<String, double> performanceBalances = {};
+    for (var inv in allInvoices.where((i) => i.type == 'sales' && i.purchaserId != null)) {
+      final invDate = DateTime.fromMillisecondsSinceEpoch(inv.billDate);
+      if (!invDate.isBefore(businessStart) && !invDate.isAfter(businessEnd)) {
+        performanceBalances[inv.purchaserId!] = (performanceBalances[inv.purchaserId!] ?? 0) + inv.totalAmount;
+      }
+    }
+    var topPerformance = performanceBalances.entries.where((e) => e.value > 0).toList()..sort((a, b) => b.value.compareTo(a.value));
+    topPerformance = topPerformance.take(5).toList();
+
+    // --- 5. ALL PARTIES CALCULATION (Current Business Year) ---
     Map<String, double> balances = {};
     for (var p in allPurchasers) { balances[p.id] = 0.0; }
     for (var inv in allInvoices) {
       if (inv.purchaserId == null) continue;
-      double amt = inv.totalAmount;
-      balances[inv.purchaserId!] = (balances[inv.purchaserId!] ?? 0.0) + (inv.type == 'sales' ? amt : -amt);
+      final date = DateTime.fromMillisecondsSinceEpoch(inv.billDate);
+      if (!date.isBefore(businessStart) && !date.isAfter(businessEnd)) {
+        double amt = inv.totalAmount;
+        balances[inv.purchaserId!] = (balances[inv.purchaserId!] ?? 0.0) + (inv.type == 'sales' ? amt : -amt);
+      }
     }
     for (var pay in allPayments) {
-      double amt = pay.amount;
-      balances[pay.purchaserId] = (balances[pay.purchaserId] ?? 0.0) + (pay.type == 'received' ? -amt : amt);
+      final date = DateTime.fromMillisecondsSinceEpoch(pay.date);
+      if (!date.isBefore(businessStart) && !date.isAfter(businessEnd)) {
+        double amt = pay.amount;
+        balances[pay.purchaserId] = (balances[pay.purchaserId] ?? 0.0) + (pay.type == 'received' ? -amt : amt);
+      }
     }
     
-    // Sort so pending balances show up first, followed by clear accounts
     final allPartiesList = allPurchasers.toList();
     allPartiesList.sort((a, b) {
       double balA = (balances[a.id] ?? 0.0).abs();
@@ -130,27 +166,33 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
       return balB.compareTo(balA);
     });
 
-    // --- 5. RECENT ACTIONS CALCULATION ---
+    // --- 6. RECENT ACTIONS CALCULATION (Filtered to Business Year, Max 10) ---
     List<Map<String, dynamic>> recentActions = [];
     for (var inv in allInvoices) {
-      recentActions.add({
-        'type': inv.type == 'sales' ? 'Sale' : 'Purchase',
-        'amount': inv.totalAmount,
-        'date': inv.billDate,
-        'purchaserId': inv.purchaserId,
-        'icon': inv.type == 'sales' ? Icons.arrow_upward : Icons.arrow_downward,
-        'color': inv.type == 'sales' ? Colors.blue : Colors.red,
-      });
+      final invDate = DateTime.fromMillisecondsSinceEpoch(inv.billDate);
+      if (!invDate.isBefore(businessStart) && !invDate.isAfter(businessEnd)) {
+        recentActions.add({
+          'type': inv.type == 'sales' ? 'Sale' : 'Purchase',
+          'amount': inv.totalAmount,
+          'date': inv.billDate,
+          'purchaserId': inv.purchaserId,
+          'icon': inv.type == 'sales' ? Icons.arrow_upward : Icons.arrow_downward,
+          'color': inv.type == 'sales' ? Colors.blue : Colors.red,
+        });
+      }
     }
     for (var pay in allPayments) {
-      recentActions.add({
-        'type': pay.type == 'received' ? 'Payment Received' : 'Payment Made',
-        'amount': pay.amount,
-        'date': pay.date,
-        'purchaserId': pay.purchaserId,
-        'icon': Icons.payments_rounded,
-        'color': pay.type == 'received' ? Colors.green : Colors.orange,
-      });
+      final payDate = DateTime.fromMillisecondsSinceEpoch(pay.date);
+      if (!payDate.isBefore(businessStart) && !payDate.isAfter(businessEnd)) {
+        recentActions.add({
+          'type': pay.type == 'received' ? 'Payment Received' : 'Payment Made',
+          'amount': pay.amount,
+          'date': pay.date,
+          'purchaserId': pay.purchaserId,
+          'icon': Icons.payments_rounded,
+          'color': pay.type == 'received' ? Colors.green : Colors.orange,
+        });
+      }
     }
     recentActions.sort((a, b) => b['date'].compareTo(a['date']));
     final topRecentActions = recentActions.take(10).toList();
@@ -173,10 +215,7 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                   const SizedBox(height: 16),
                   Text(company.name.toUpperCase(), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 1.2, color: Color(0xFF203A43))),
                   const SizedBox(height: 4),
-                  
-                  // --- NEW: BY NAME ---
                   Text('by: $userName', style: TextStyle(color: Colors.grey.shade600, fontSize: 14, fontWeight: FontWeight.w600)),
-                  
                   const SizedBox(height: 8),
                   Text('${company.address1}, ${company.address2}', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
                   Text('MO: ${company.mobileNumber}', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold, fontSize: 14)),
@@ -223,9 +262,25 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
             ),
           ),
           
-          const SizedBox(height: 24),
+          const SizedBox(height: 32),
           
           // --- KPI HEADER & SNAPSHOT ---
+          Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.blue.shade100)
+              ),
+              child: Text(
+                businessYearLabel, 
+                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade800)
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -260,11 +315,11 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
               const SizedBox(width: 16),
               Expanded(
                 child: _buildMetricCard(
-                  "This Month's ${_analyticsFilter == 'Both' ? 'Net' : _analyticsFilter}", 
-                  monthNet, 
-                  monthSales,
-                  monthPurchases,
-                  '1st - ${DateFormat('dd MMM').format(now)}', 
+                  "This Year's ${_analyticsFilter == 'Both' ? 'Net' : _analyticsFilter}", 
+                  yearNet, 
+                  yearSales,
+                  yearPurchases,
+                  'Apr - Mar', 
                   [Colors.teal.shade400, Colors.green.shade600]
                 )
               ),
@@ -274,7 +329,7 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
           const SizedBox(height: 32),
 
           // --- BAR CHART: CASH FLOW TREND ---
-          const Text('6-Month Cash Flow Trend', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
+          const Text("Current Year's Cash Flow", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
           const SizedBox(height: 12),
           HoverableDataCard(
             gradientColors: const [Colors.white, Colors.white],
@@ -305,7 +360,10 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                           bottomTitles: AxisTitles(
                             sideTitles: SideTitles(
                               showTitles: true,
-                              getTitlesWidget: (value, meta) => Padding(padding: const EdgeInsets.only(top: 10), child: Text(monthLabels[value.toInt()], style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade600))),
+                              getTitlesWidget: (value, meta) => Padding(
+                                padding: const EdgeInsets.only(top: 10), 
+                                child: Text(monthLabels[value.toInt()], style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey.shade600))
+                              ),
                             ),
                           ),
                           leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), 
@@ -314,12 +372,12 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                         ),
                         gridData: const FlGridData(show: false),
                         borderData: FlBorderData(show: false),
-                        barGroups: List.generate(6, (i) {
+                        barGroups: List.generate(12, (i) {
                           return BarChartGroupData(
                             x: i,
                             barRods: [
-                              BarChartRodData(toY: monthlySales[i], gradient: LinearGradient(colors: [Colors.blueAccent.shade100, Colors.blueAccent.shade700], begin: Alignment.bottomCenter, end: Alignment.topCenter), width: 12, borderRadius: BorderRadius.circular(4)),
-                              BarChartRodData(toY: monthlyPurchases[i], gradient: LinearGradient(colors: [Colors.pinkAccent.shade100, Colors.pinkAccent.shade700], begin: Alignment.bottomCenter, end: Alignment.topCenter), width: 12, borderRadius: BorderRadius.circular(4)),
+                              BarChartRodData(toY: monthlySales[i], gradient: LinearGradient(colors: [Colors.blueAccent.shade100, Colors.blueAccent.shade700], begin: Alignment.bottomCenter, end: Alignment.topCenter), width: 8, borderRadius: BorderRadius.circular(4)),
+                              BarChartRodData(toY: monthlyPurchases[i], gradient: LinearGradient(colors: [Colors.pinkAccent.shade100, Colors.pinkAccent.shade700], begin: Alignment.bottomCenter, end: Alignment.topCenter), width: 8, borderRadius: BorderRadius.circular(4)),
                             ],
                           );
                         }),
@@ -342,6 +400,67 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
 
           const SizedBox(height: 32),
 
+          // --- PIE CHART: TOP PERFORMANCE ---
+          if (topPerformance.isNotEmpty) ...[
+            const Text('Top Performance', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
+            const SizedBox(height: 12),
+            HoverableDataCard(
+              gradientColors: const [Colors.white, Colors.white],
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      height: 140,
+                      width: 140,
+                      child: PieChart(
+                        PieChartData(
+                          sectionsSpace: 4,
+                          centerSpaceRadius: 25,
+                          sections: List.generate(topPerformance.length, (i) {
+                            return PieChartSectionData(
+                              color: perfColors[i],
+                              value: topPerformance[i].value,
+                              title: '', 
+                              radius: 45,
+                              badgeWidget: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)]),
+                                child: Text('${i+1}', style: TextStyle(fontWeight: FontWeight.bold, color: perfColors[i], fontSize: 10)),
+                              ),
+                              badgePositionPercentageOffset: 1.1,
+                            );
+                          }),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 24),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: List.generate(topPerformance.length, (i) {
+                          final purchaserName = allPurchasers.firstWhere((p) => p.id == topPerformance[i].key, orElse: () => Purchaser(id: '', userId: '', name: 'Unknown', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0)).name;
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12.0),
+                            child: Row(
+                              children: [
+                                Container(width: 12, height: 12, decoration: BoxDecoration(color: perfColors[i], shape: BoxShape.circle)),
+                                const SizedBox(width: 8),
+                                Expanded(child: Text(purchaserName, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade800), overflow: TextOverflow.ellipsis)),
+                                Text('₹${formatAmount(topPerformance[i].value)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+                              ],
+                            ),
+                          );
+                        }),
+                      ),
+                    )
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 32),
+          ],
+
           // --- PIE CHART: TOP DEBTORS ---
           if (top5Debtors.isNotEmpty) ...[
             const Text('Top Outstanding Receivables', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
@@ -361,14 +480,14 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                           centerSpaceRadius: 25,
                           sections: List.generate(top5Debtors.length, (i) {
                             return PieChartSectionData(
-                              color: pieColors[i],
+                              color: debtorColors[i],
                               value: top5Debtors[i].value,
                               title: '', 
                               radius: 45,
                               badgeWidget: Container(
                                 padding: const EdgeInsets.all(4),
                                 decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)]),
-                                child: Text('${i+1}', style: TextStyle(fontWeight: FontWeight.bold, color: pieColors[i], fontSize: 10)),
+                                child: Text('${i+1}', style: TextStyle(fontWeight: FontWeight.bold, color: debtorColors[i], fontSize: 10)),
                               ),
                               badgePositionPercentageOffset: 1.1,
                             );
@@ -386,7 +505,7 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                             padding: const EdgeInsets.only(bottom: 12.0),
                             child: Row(
                               children: [
-                                Container(width: 12, height: 12, decoration: BoxDecoration(color: pieColors[i], shape: BoxShape.circle)),
+                                Container(width: 12, height: 12, decoration: BoxDecoration(color: debtorColors[i], shape: BoxShape.circle)),
                                 const SizedBox(width: 8),
                                 Expanded(child: Text(purchaserName, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade800), overflow: TextOverflow.ellipsis)),
                                 Text('₹${formatAmount(top5Debtors[i].value)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
@@ -403,8 +522,8 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
             const SizedBox(height: 32),
           ],
 
-          // --- ALL PARTIES (UPDATED FROM PENDING PAYMENTS) ---
-          const Text('Parties', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
+          // --- ALL PARTIES ---
+          const Text('Parties (Balances As Of Current Year)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
           const SizedBox(height: 12),
           HoverableDataCard(
             gradientColors: [Colors.purple.shade700, Colors.deepPurple.shade400],
@@ -419,7 +538,6 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                     return Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        // Navigates directly to the AccountDetailScreen for this party
                         onTap: () {
                           Navigator.push(
                             context,
@@ -481,7 +599,7 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
           
           const SizedBox(height: 32),
 
-          // --- SHORTCUT LINKS (UPDATED) ---
+          // --- SHORTCUT LINKS ---
           const Text('Quick Access', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
           const SizedBox(height: 12),
           GridView.count(
@@ -492,7 +610,7 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
             mainAxisSpacing: 16,
             childAspectRatio: 3.8, 
             children: [
-              _buildShortcutBtn(Icons.people, 'Parties', Colors.teal, () => widget.onNavigateTab?.call(1)), // Added Parties Link
+              _buildShortcutBtn(Icons.people, 'Parties', Colors.teal, () => widget.onNavigateTab?.call(1)), 
               _buildShortcutBtn(Icons.point_of_sale, 'Sales', Colors.blueAccent, () => widget.onNavigateTab?.call(2)), 
               _buildShortcutBtn(Icons.shopping_cart, 'Purchase', Colors.pinkAccent, () => widget.onNavigateTab?.call(3)),
               _buildShortcutBtn(Icons.book, 'Ledger', Colors.deepPurpleAccent, () => widget.onNavigateTab?.call(4)),
@@ -521,7 +639,6 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
             ),
             const SizedBox(height: 8),
             
-            // --- UPDATED: Sales & Purchase matching the exact size/color as the title ---
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

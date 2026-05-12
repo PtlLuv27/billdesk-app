@@ -46,8 +46,6 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
 
   List<Invoice> _getFilteredInvoices(List<Invoice> allInvoices, DateTimeRange? dateRange) {
     return allInvoices.where((invoice) {
-      // NOTE: We no longer filter out 'MANUAL' here so we can calculate the total balance later.
-      
       if (dateRange != null) {
         final billDate = DateTime.fromMillisecondsSinceEpoch(invoice.billDate);
         final start = DateTime(dateRange.start.year, dateRange.start.month, dateRange.start.day);
@@ -91,10 +89,21 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
       initialDateRange: currentRange,
       firstDate: DateTime(2020),
       lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Colors.blueAccent,
+              onPrimary: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
     
     if (picked != null) {
-      // Save dates to Riverpod global state
       ref.read(ledgerDateRangeProvider.notifier).setDateRange(picked);
     }
   }
@@ -105,14 +114,25 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Edit Bill Name/No.'),
+        title: const Text('Edit Bill Name/No.', style: TextStyle(fontWeight: FontWeight.bold)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         content: TextField(
           controller: editCtrl,
-          decoration: const InputDecoration(labelText: 'New Bill No.', border: OutlineInputBorder()),
+          decoration: InputDecoration(
+            labelText: 'New Bill No.', 
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            filled: true,
+            fillColor: Colors.grey.shade50,
+          ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blueAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
             onPressed: () async {
               if (editCtrl.text.isNotEmpty) {
                 final updatedInvoice = Invoice(
@@ -139,38 +159,75 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
     );
   }
 
-  // --- UI HELPER FOR BALANCE CARDS ---
-  Widget _buildBalanceCard(String title, double balance) {
+  // --- REBUILT NET BALANCE CARD (Matches Screenshot exactly) ---
+  Widget _buildNetBalanceCard(double balance) {
     final isPositive = balance >= 0;
+    // Using the clean green styling from the image
+    final Color primaryColor = isPositive ? const Color(0xFF2E7D32) : Colors.red.shade700;
+    final Color bgColor = isPositive ? const Color(0xFFE8F5E9) : Colors.red.shade50;
+    final Color borderColor = isPositive ? const Color(0xFFA5D6A7) : Colors.red.shade200;
+    
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 40, vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
       decoration: BoxDecoration(
-        color: isPositive ? Colors.green.shade50 : Colors.red.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: isPositive ? Colors.green : Colors.red, width: 2),
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor, width: 2),
       ),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            title,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black54, height: 1.3),
+            _selectedPurchaserId == null ? 'NET BALANCE' : 'PARTY BALANCE',
+            style: TextStyle(
+              color: Colors.blueGrey.shade600, 
+              fontSize: 13, 
+              fontWeight: FontWeight.w800, 
+              letterSpacing: 1.5
+            ),
           ),
           const SizedBox(height: 8),
           FittedBox(
             fit: BoxFit.scaleDown,
             child: Text(
-              '₹${formatAmount(balance)}',
+              '₹${formatAmount(balance.abs())}',
               style: TextStyle(
-                fontSize: 20, // Reduced from 32 to fit two boxes side-by-side cleanly
-                fontWeight: FontWeight.bold,
-                color: isPositive ? Colors.green.shade700 : Colors.red.shade700,
+                fontSize: 36, 
+                fontWeight: FontWeight.w900, 
+                color: primaryColor, 
+                height: 1.1
               ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _taxFilter == 'With GST' ? '(Including Tax)' : '(Sub Total Only)',
+            style: TextStyle(
+              color: Colors.blueGrey.shade600, 
+              fontSize: 13, 
+              fontWeight: FontWeight.w500
             ),
           ),
         ],
       ),
+    );
+  }
+
+  // Adjusted filter decoration to match the flat UI in the screenshot
+  InputDecoration _filterDecoration(String label, {IconData? icon}) {
+    return InputDecoration(
+      labelText: label,
+      floatingLabelBehavior: FloatingLabelBehavior.always, // Labels sit on top of the border
+      labelStyle: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w600, fontSize: 14),
+      prefixIcon: icon != null ? Icon(icon, color: Colors.blueGrey.shade700, size: 20) : null,
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.blueAccent, width: 1.5)),
     );
   }
 
@@ -179,246 +236,274 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
     final allInvoices = ref.watch(invoiceProvider);
     final allPurchasers = ref.watch(purchaserProvider); 
     
-    // Watch the global date range state
     final dateRange = ref.watch(ledgerDateRangeProvider);
     
-    // 1. Get ALL matched invoices (Including Manual)
     final allFilteredInvoices = _getFilteredInvoices(allInvoices, dateRange);
-    
-    // 2. Filter out MANUAL invoices for the main list and "Without Manual" calculation
     final displayInvoices = allFilteredInvoices.where((i) => i.billNo.trim().toUpperCase() != 'MANUAL').toList();
-    
-    // 3. Calculate both balances independently
-    final netBalanceWithoutManual = _calculateNetBalance(displayInvoices);
-    final netBalanceWithManual = _calculateNetBalance(allFilteredInvoices);
+    final netBalance = _calculateNetBalance(allFilteredInvoices);
 
-    // 4. Sort only the display invoices (the ones we actually show in the list)
     final sortedInvoices = List<Invoice>.from(displayInvoices);
     sortedInvoices.sort((a, b) {
       if (_isNewestFirst) {
-        return b.billDate.compareTo(a.billDate); // Newest First
+        return b.billDate.compareTo(a.billDate); 
       } else {
-        return a.billDate.compareTo(b.billDate); // Oldest First
+        return a.billDate.compareTo(b.billDate); 
       }
     });
 
     return Scaffold(
-      body: Column(
-        children: [
-          // --- FILTER CONTROLS ---
-          Container(
-            padding: const EdgeInsets.all(12),
-            color: Colors.grey.shade100,
+      backgroundColor: Colors.white, // Setting to white to match screenshot
+      body: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
             child: Column(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.calendar_month),
-                        label: Text(dateRange == null 
-                            ? 'Select Date Range' 
-                            : '${DateFormat('dd/MM/yy').format(dateRange.start)} - ${DateFormat('dd/MM/yy').format(dateRange.end)}'),
-                        onPressed: _selectDateRange,
+                // --- FILTER SECTION ---
+                Container(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.calendar_month, size: 20),
+                              label: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  dateRange == null 
+                                    ? 'Select Date Range' 
+                                    : '${DateFormat('dd MMM yy').format(dateRange.start)}  -  ${DateFormat('dd MMM yy').format(dateRange.end)}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                ),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+                                backgroundColor: Colors.white,
+                                foregroundColor: Colors.blueAccent,
+                                side: BorderSide(color: Colors.blueAccent.shade100, width: 1.5),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)), // Rounded button
+                              ),
+                              onPressed: _selectDateRange,
+                            ),
+                          ),
+                          if (dateRange != null) ...[
+                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: const Icon(Icons.close_rounded, color: Colors.redAccent),
+                              style: IconButton.styleFrom(backgroundColor: Colors.red.shade50),
+                              tooltip: 'Clear Dates',
+                              onPressed: () => ref.read(ledgerDateRangeProvider.notifier).setDateRange(null),
+                            )
+                          ]
+                        ],
                       ),
-                    ),
-                    if (dateRange != null)
-                      IconButton(
-                        icon: const Icon(Icons.clear, color: Colors.redAccent),
-                        tooltip: 'Clear Dates',
-                        onPressed: () {
-                          // Clear dates from Riverpod global state
-                          ref.read(ledgerDateRangeProvider.notifier).setDateRange(null);
-                        },
-                      )
-                  ],
-                ),
-                const SizedBox(height: 10),
-                
-                Row(
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(labelText: 'Transaction Type', isDense: true, border: OutlineInputBorder()),
-                        initialValue: _typeFilter,
-                        items: ['Both', 'Sales Only', 'Purchase Only'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                        onChanged: (val) => setState(() => _typeFilter = val!),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              decoration: _filterDecoration('Transaction Type'),
+                              initialValue: _typeFilter,
+                              isExpanded: true, 
+                              icon: const Icon(Icons.arrow_drop_down, color: Colors.black54),
+                              items: ['Both', 'Sales Only', 'Purchase Only'].map((e) => DropdownMenuItem(value: e, child: Text(e, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)))).toList(),
+                              onChanged: (val) => setState(() => _typeFilter = val!),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              decoration: _filterDecoration('Tax Setting'),
+                              initialValue: _taxFilter,
+                              isExpanded: true, 
+                              icon: const Icon(Icons.arrow_drop_down, color: Colors.black54),
+                              items: ['With GST', 'Without GST'].map((e) => DropdownMenuItem(value: e, child: Text(e, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)))).toList(),
+                              onChanged: (val) => setState(() => _taxFilter = val!),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(labelText: 'Tax Setting', isDense: true, border: OutlineInputBorder()),
-                        initialValue: _taxFilter,
-                        items: ['With GST', 'Without GST'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                        onChanged: (val) => setState(() => _taxFilter = val!),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String?>(
+                        decoration: _filterDecoration('Filter by Party / Purchaser', icon: Icons.person_search),
+                        initialValue: _selectedPurchaserId,
+                        isExpanded: true, 
+                        icon: const Icon(Icons.arrow_drop_down, color: Colors.black54),
+                        items: [
+                          const DropdownMenuItem(value: null, child: Text('All Parties', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent))),
+                          ...allPurchasers.map((p) => DropdownMenuItem(value: p.id, child: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)))),
+                        ],
+                        onChanged: (val) => setState(() => _selectedPurchaserId = val),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                
-                DropdownButtonFormField<String?>(
-                  decoration: const InputDecoration(
-                    labelText: 'Filter by Party / Purchaser', 
-                    isDense: true, 
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.person_search),
+                    ],
                   ),
-                  initialValue: _selectedPurchaserId,
-                  isExpanded: true, 
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('All Parties', style: TextStyle(fontWeight: FontWeight.bold))),
-                    ...allPurchasers.map((p) => DropdownMenuItem(value: p.id, child: Text(p.name))),
-                  ],
-                  onChanged: (val) => setState(() => _selectedPurchaserId = val),
                 ),
-              ],
-            ),
-          ),
 
-          // --- ANALYTICS DASHBOARD (SIDE-BY-SIDE BOXES) ---
-          Container(
-            margin: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildBalanceCard(
-                        _selectedPurchaserId == null ? 'NET BALANCE' : 'PARTY BALANCE\n(Without Manual)', 
-                        netBalanceWithoutManual
-                      )
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildBalanceCard(
-                        _selectedPurchaserId == null ? 'BALANCE\n(With Manual Entries)' : 'PARTY BALANCE\n(With Manual)', 
-                        netBalanceWithManual
-                      )
-                    ),
-                  ],
-                ),
                 const SizedBox(height: 8),
-                Text(
-                  _taxFilter == 'With GST' ? '* Balances are Including Tax' : '* Balances are Sub Total Only', 
-                  style: const TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic)
-                ),
+
+                // --- NEW FLAT NET BALANCE CARD ---
+                _buildNetBalanceCard(netBalance),
+                
+                const SizedBox(height: 8),
               ],
             ),
           ),
 
           // --- BILLS ARCHIVE LIST ---
-          Expanded(
-            child: sortedInvoices.isEmpty
-                ? const Center(child: Text('No transactions found for these filters.'))
-                : ListView.builder(
-                    itemCount: sortedInvoices.length,
-                    itemBuilder: (context, index) {
+          sortedInvoices.isEmpty
+            ? SliverFillRemaining(
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.search_off_rounded, size: 64, color: Colors.grey.shade300),
+                      const SizedBox(height: 16),
+                      Text('No transactions found.', style: TextStyle(color: Colors.grey.shade600, fontSize: 16, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              )
+            : SliverPadding(
+                padding: const EdgeInsets.only(bottom: 100), // Only bottom padding, no side margins
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
                       final invoice = sortedInvoices[index];
                       final isSale = invoice.type == 'sales';
                       
                       final purchaser = allPurchasers.firstWhere(
                         (p) => p.id == invoice.purchaserId, 
-                        orElse: () => Purchaser(id: '', userId: '', name: 'Unknown', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0)
+                        orElse: () => Purchaser(id: '', userId: '', name: 'Unknown Party', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0)
                       );
                       
-                      return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: isSale ? Colors.blue.shade100 : Colors.red.shade100,
-                          child: Icon(
-                            isSale ? Icons.arrow_upward : Icons.arrow_downward,
-                            color: isSale ? Colors.blue : Colors.red,
-                          ),
-                        ),
-                        
-                        title: Text('Bill #${invoice.billNo}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 4.0),
-                          child: Text('${purchaser.name}\n${DateFormat('dd MMM yyyy').format(DateTime.fromMillisecondsSinceEpoch(invoice.billDate))}', style: TextStyle(color: Colors.grey.shade700)),
-                        ),
-                        isThreeLine: true,
-                        
-                        trailing: Text(
-                          '₹${formatAmount(_taxFilter == 'With GST' ? invoice.totalAmount : invoice.subTotal)}',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isSale ? Colors.green : Colors.red),
-                        ),
+                      // Using InkWell directly without a Card container to match the flat screenshot look
+                      return InkWell(
                         onTap: () {
                           final company = ref.read(activeCompanyProvider);
-
                           if (isSale) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => EditableInvoiceScreen(
-                                  invoice: invoice,
-                                  company: company!,
-                                  purchaser: purchaser
-                                )
-                              ),
-                            );
+                            Navigator.push(context, MaterialPageRoute(builder: (context) => EditableInvoiceScreen(invoice: invoice, company: company!, purchaser: purchaser)));
                           } else {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => EditablePurchaseScreen(
-                                  invoice: invoice,
-                                  company: company!,
-                                  purchaser: purchaser
-                                )
-                              ),
-                            );
+                            Navigator.push(context, MaterialPageRoute(builder: (context) => EditablePurchaseScreen(invoice: invoice, company: company!, purchaser: purchaser)));
                           }
                         },
                         onLongPress: () {
                           showModalBottomSheet(
                             context: context,
+                            backgroundColor: Colors.white,
+                            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
                             builder: (context) => SafeArea(
-                              child: Wrap(
-                                children: [
-                                  ListTile(
-                                    leading: const Icon(Icons.calendar_month, color: Colors.blue),
-                                    title: Text('Bill Date: ${DateFormat('dd MMM yyyy').format(DateTime.fromMillisecondsSinceEpoch(invoice.billDate))}'),
-                                  ),
-                                  const Divider(height: 1),
-                                  ListTile(
-                                    leading: const Icon(Icons.edit),
-                                    title: const Text('Edit Bill No.'),
-                                    onTap: () {
-                                      Navigator.pop(context); 
-                                      _showEditBillNoDialog(context, invoice, ref);
-                                    },
-                                  ),
-                                  ListTile(
-                                    leading: const Icon(Icons.delete, color: Colors.red),
-                                    title: const Text('Delete Data', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                                    onTap: () async {
-                                      Navigator.pop(context); 
-                                      await ref.read(invoiceProvider.notifier).deleteInvoice(invoice);
-                                      if (mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bill Deleted!')));
-                                      }
-                                    },
-                                  ),
-                                ],
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+                                    const SizedBox(height: 16),
+                                    ListTile(
+                                      leading: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.blue.shade50, shape: BoxShape.circle), child: const Icon(Icons.calendar_month, color: Colors.blueAccent)),
+                                      title: Text('Bill Date: ${DateFormat('dd MMM yyyy').format(DateTime.fromMillisecondsSinceEpoch(invoice.billDate))}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                    ),
+                                    ListTile(
+                                      leading: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.orange.shade50, shape: BoxShape.circle), child: const Icon(Icons.edit, color: Colors.orange)),
+                                      title: const Text('Edit Bill Name/No.', style: TextStyle(fontWeight: FontWeight.bold)),
+                                      onTap: () {
+                                        Navigator.pop(context); 
+                                        _showEditBillNoDialog(context, invoice, ref);
+                                      },
+                                    ),
+                                    ListTile(
+                                      leading: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.red.shade50, shape: BoxShape.circle), child: const Icon(Icons.delete, color: Colors.red)),
+                                      title: const Text('Delete Transaction', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                                      onTap: () async {
+                                        Navigator.pop(context); 
+                                        await ref.read(invoiceProvider.notifier).deleteInvoice(invoice);
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Transaction Deleted'), backgroundColor: Colors.redAccent));
+                                        }
+                                      },
+                                    ),
+                                    const SizedBox(height: 8),
+                                  ],
+                                ),
                               ),
                             ),
                           );
                         },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start, // Align to top
+                            children: [
+                              // --- CIRCULAR ICON ---
+                              Container(
+                                height: 48,
+                                width: 48,
+                                decoration: BoxDecoration(
+                                  color: isSale ? Colors.blue.shade50 : Colors.red.shade50,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  isSale ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+                                  color: isSale ? Colors.blue : Colors.red,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              
+                              // --- BILL NO, NAME, DATE ---
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Bill #${invoice.billNo}', 
+                                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Colors.black),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      purchaser.name, 
+                                      style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      DateFormat('dd MMM yyyy').format(DateTime.fromMillisecondsSinceEpoch(invoice.billDate)), 
+                                      style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              
+                              // --- AMOUNT TEXT ---
+                              Text(
+                                '₹${formatAmount(_taxFilter == 'With GST' ? invoice.totalAmount : invoice.subTotal)}',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold, 
+                                  fontSize: 16, 
+                                  color: isSale ? const Color(0xFF2E7D32) : Colors.red.shade700 // Matching the exact green
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       );
                     },
+                    childCount: sortedInvoices.length,
                   ),
-          ),
+                ),
+              ),
         ],
       ),
       
+      // Cyan FAB
       floatingActionButton: FloatingActionButton(
         onPressed: () {
           setState(() {
-            _isNewestFirst = !_isNewestFirst; // Toggle sort order
+            _isNewestFirst = !_isNewestFirst; 
           });
         },
-        backgroundColor: const Color.fromARGB(255, 7, 195, 233), 
+        backgroundColor: const Color(0xFF00BCD4), 
         foregroundColor: Colors.white,
         shape: const CircleBorder(),
         elevation: 4,

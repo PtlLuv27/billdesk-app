@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart'; 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:local_auth/local_auth.dart'; 
 import '../../models/company_model.dart';
@@ -23,16 +24,33 @@ class GlobalDashboardScreen extends ConsumerStatefulWidget {
 class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
   final LocalAuthentication auth = LocalAuthentication();
   bool _isSyncing = false;
+  bool _isOnline = true; 
+  
+  // --- 🔥 Key to programmatically trigger the swipe-to-refresh animation ---
+  final GlobalKey<RefreshIndicatorState> _refreshIndicatorKey = GlobalKey<RefreshIndicatorState>();
 
   @override
   void initState() {
     super.initState();
-    _performInitialSync();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Trigger the visual refresh spinner on initial load too!
+      _refreshIndicatorKey.currentState?.show();
+    });
   }
 
   Future<void> _performInitialSync() async {
+    if (_isSyncing) return; 
+
     setState(() => _isSyncing = true);
-    
+
+    bool isConnected = true;
+    try {
+      await Supabase.instance.client.auth.getUser().timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint("Connectivity check failed. User is offline: $e");
+      isConnected = false;
+    }
+
     await SyncEngine.syncAll();
     
     if (mounted) {
@@ -40,39 +58,37 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
       if (userId != null) {
         ref.invalidate(companyProvider); 
       }
-      setState(() => _isSyncing = false);
+      setState(() {
+        _isOnline = isConnected; 
+        _isSyncing = false;
+      });
     }
   }
 
-  // --- 🔥 SMART CASCADING LOGOUT SYSTEM ---
   Future<void> _logOutOfAccount(String emailToLogOut, bool isActiveAccount, BuildContext context) async {
     final storageService = ref.read(secureStorageProvider);
     
-    // 1. Always remove the dead session from secure storage
     await storageService.removeSession(emailToLogOut);
 
-    // 2. If it was the currently active account, we must sign out of Supabase and swap
     if (isActiveAccount) {
       await Supabase.instance.client.auth.signOut();
       
       final remainingAccounts = await storageService.getSavedEmails();
       
       if (remainingAccounts.isNotEmpty) {
-        // We found a backup account! Swap to it silently.
         try {
           final nextToken = await storageService.getTokenForEmail(remainingAccounts.first);
           if (nextToken != null) {
             await Supabase.instance.client.auth.setSession(nextToken);
             ref.invalidate(companyProvider);
             ref.invalidate(authProvider);
-            return; // Stop here, dashboard will refresh with the new active account
+            return; 
           }
         } catch (e) {
           debugPrint('Auto-swap failed: $e');
         }
       }
       
-      // If we reach here, there are no accounts left OR the auto-swap failed. Kick to login.
       if (context.mounted) {
         Navigator.pushAndRemoveUntil(
           context,
@@ -336,10 +352,8 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
                                       Navigator.pop(sheetCtx); // Close the bottom sheet entirely
                                     }
                                     
-                                    // Execute the smart logout logic
                                     await _logOutOfAccount(email, isActive, context);
                                     
-                                    // If it wasn't the active account, just update the bottom sheet UI
                                     if (!isActive) {
                                       setSheetState(() {
                                         savedAccounts.remove(email);
@@ -383,17 +397,6 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
     );
   }
 
-  List<Color> _getCompanyGradient(int index) {
-    final gradients = [
-      [const Color(0xFF4facfe), const Color(0xFF00f2fe)], 
-      [const Color(0xFFff0844), const Color(0xFFffb199)], 
-      [const Color(0xFF43e97b), const Color(0xFF38f9d7)], 
-      [const Color(0xFFfa709a), const Color(0xFFfee140)], 
-      [const Color(0xFF667eea), const Color(0xFF764ba2)], 
-    ];
-    return gradients[index % gradients.length];
-  }
-
   @override
   Widget build(BuildContext context) {
     final companies = ref.watch(companyProvider);
@@ -405,28 +408,18 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
           icon: const Icon(Icons.menu),
           onPressed: () => _showAccountSwitcher(context, ref),
         ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Workspaces', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
-            if (_isSyncing) ...[
-              const SizedBox(width: 12),
-              const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
-            ]
-          ],
+        title: GestureDetector(
+          onTap: () {
+            _refreshIndicatorKey.currentState?.show();
+          },
+          child: const Text(
+            'Workspaces', 
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22)
+          ),
         ),
         centerTitle: true,
         elevation: 0,
-        backgroundColor: Colors.transparent, 
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
+        backgroundColor: Colors.blueAccent,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
@@ -441,108 +434,139 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
           )
         ],
       ),
-      body: companies.isEmpty && !_isSyncing
-          ? _buildEmptyState()
-          : ListView.builder(
-              padding: const EdgeInsets.only(left: 16, right: 16, top: 24, bottom: 100),
-              itemCount: companies.length,
-              itemBuilder: (context, index) {
-                final company = companies[index];
-                
-                return TweenAnimationBuilder<double>(
-                  duration: Duration(milliseconds: 400 + (index * 150)), 
-                  tween: Tween(begin: 0.0, end: 1.0),
-                  curve: Curves.easeOutQuart,
-                  builder: (context, value, child) {
-                    return Transform.translate(
-                      offset: Offset(0, 50 * (1 - value)), 
-                      child: Opacity(opacity: value.clamp(0.0, 1.0), child: child),
+      body: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(
+          dragDevices: {
+            PointerDeviceKind.touch,
+            PointerDeviceKind.mouse, 
+            PointerDeviceKind.trackpad,
+          },
+        ),
+        child: RefreshIndicator(
+          key: _refreshIndicatorKey, 
+          onRefresh: _performInitialSync,
+          color: Colors.blueAccent,
+          backgroundColor: Colors.white,
+          child: companies.isEmpty && !_isSyncing
+              ? _buildEmptyState()
+              : ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.only(left: 16, right: 16, top: 24, bottom: 100),
+                  itemCount: companies.length,
+                  itemBuilder: (context, index) {
+                    final company = companies[index];
+                    
+                    return TweenAnimationBuilder<double>(
+                      duration: Duration(milliseconds: 400 + (index * 150)), 
+                      tween: Tween(begin: 0.0, end: 1.0),
+                      curve: Curves.easeOutQuart,
+                      builder: (context, value, child) {
+                        return Transform.translate(
+                          offset: Offset(0, 50 * (1 - value)), 
+                          child: Opacity(opacity: value.clamp(0.0, 1.0), child: child),
+                        );
+                      },
+                      child: HoverableCompanyCard(
+                        company: company,
+                        isOnline: _isOnline, 
+                        onTap: () => _promptPinAndLogin(context, company, ref),
+                        onEdit: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EditCompanyScreen(company: company))),
+                        onDelete: () {
+                          showDialog(
+                            context: context,
+                            builder: (dialogCtx) => AlertDialog(
+                              title: const Text('Delete Workspace?'),
+                              content: const Text('Are you sure? This will hide the company from your dashboard.'),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                                  onPressed: () {
+                                    ref.read(companyProvider.notifier).deleteCompany(company);
+                                    Navigator.pop(dialogCtx);
+                                  },
+                                  child: const Text('Delete'),
+                                )
+                              ],
+                            )
+                          );
+                        },
+                      ),
                     );
                   },
-                  child: HoverableCompanyCard(
-                    company: company,
-                    gradient: _getCompanyGradient(index),
-                    onTap: () => _promptPinAndLogin(context, company, ref),
-                    onEdit: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EditCompanyScreen(company: company))),
-                    onDelete: () {
-                      showDialog(
-                        context: context,
-                        builder: (dialogCtx) => AlertDialog(
-                          title: const Text('Delete Workspace?'),
-                          content: const Text('Are you sure? This will hide the company from your dashboard.'),
-                          actions: [
-                            TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                              onPressed: () {
-                                ref.read(companyProvider.notifier).deleteCompany(company);
-                                Navigator.pop(dialogCtx);
-                              },
-                              child: const Text('Delete'),
-                            )
-                          ],
-                        )
-                      );
-                    },
-                  ),
-                );
-              },
-            ),
+                ),
+        ),
+      ),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: null, 
         elevation: 8,
-        backgroundColor: const Color(0xFF0F2027),
+        backgroundColor: Colors.blueAccent, 
         foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const CreateCompanyScreen())),
-        icon: const Icon(Icons.add_business_rounded),
+        icon: const Icon(Icons.business_center_rounded),
         label: const Text('New Company', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5)),
       ),
     );
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: TweenAnimationBuilder<double>(
-        duration: const Duration(milliseconds: 800),
-        tween: Tween(begin: 0.0, end: 1.0),
-        curve: Curves.easeOutBack, 
-        builder: (context, value, child) {
-          return Transform.scale(
-            scale: value,
-            child: Opacity(opacity: value.clamp(0.0, 1.0), child: child),
-          );
-        },
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20)]),
-              child: Icon(Icons.cloud_sync_rounded, size: 80, color: Colors.blue.shade200),
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        SizedBox(height: MediaQuery.of(context).size.height * 0.25), 
+        Center(
+          child: TweenAnimationBuilder<double>(
+            duration: const Duration(milliseconds: 800),
+            tween: Tween(begin: 0.0, end: 1.0),
+            curve: Curves.easeOutBack, 
+            builder: (context, value, child) {
+              return Transform.scale(
+                scale: value,
+                child: Opacity(opacity: value.clamp(0.0, 1.0), child: child),
+              );
+            },
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20)]),
+                  child: Icon(Icons.cloud_sync_rounded, size: 80, color: Colors.blue.shade200),
+                ),
+                const SizedBox(height: 32),
+                const Text('No Workspaces Yet', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Color(0xFF203A43))),
+                const SizedBox(height: 12),
+                Text(
+                  'Tap the button below to register\nyour first company to the cloud.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 16, color: Colors.grey.shade600, height: 1.5, fontWeight: FontWeight.w500),
+                ),
+              ],
             ),
-            const SizedBox(height: 32),
-            const Text('No Workspaces Yet', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Color(0xFF203A43))),
-            const SizedBox(height: 12),
-            Text(
-              'Tap the button below to register\nyour first company to the cloud.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: Colors.grey.shade600, height: 1.5, fontWeight: FontWeight.w500),
-            ),
-          ],
+          ),
         ),
-      ),
+      ],
     );
   }
 }
 
-// --- CUSTOM HOVER WIDGET ---
+// --- HOVER WIDGET (UPDATED TO MATCH IMAGE_FCCD95.PNG) ---
 class HoverableCompanyCard extends StatefulWidget {
   final Company company;
-  final List<Color> gradient;
+  final bool isOnline; 
   final VoidCallback onTap;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
-  const HoverableCompanyCard({super.key, required this.company, required this.gradient, required this.onTap, required this.onEdit, required this.onDelete});
+  const HoverableCompanyCard({
+    super.key, 
+    required this.company, 
+    required this.isOnline, 
+    required this.onTap, 
+    required this.onEdit, 
+    required this.onDelete
+  });
 
   @override
   State<HoverableCompanyCard> createState() => _HoverableCompanyCardState();
@@ -592,39 +616,75 @@ class _HoverableCompanyCardState extends State<HoverableCompanyCard> {
           transform: Matrix4.identity()..scale(_isHovered ? 1.02 : 1.0),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(20), 
             boxShadow: [
               BoxShadow(
-                color: widget.gradient.first.withOpacity(_isHovered ? 0.3 : 0.08),
-                blurRadius: _isHovered ? 20 : 10,
+                color: Colors.black.withOpacity(_isHovered ? 0.08 : 0.04),
+                blurRadius: _isHovered ? 16 : 8,
                 offset: Offset(0, _isHovered ? 8 : 4),
               ),
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(20),
             child: Stack(
               children: [
-                Positioned(left: 0, top: 0, bottom: 0, width: 8, child: Container(decoration: BoxDecoration(gradient: LinearGradient(colors: widget.gradient, begin: Alignment.topCenter, end: Alignment.bottomCenter)))),
+                // --- THICK LEFT BORDER GRADIENT ---
+                Positioned(
+                  left: 0, top: 0, bottom: 0, width: 8,
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFF00E5FF), Color(0xFF2979FF)], // Cyan to Blue gradient
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                      ),
+                    ),
+                  ),
+                ),
+                
                 Padding(
-                  padding: const EdgeInsets.all(20).copyWith(left: 28),
+                  padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20).copyWith(left: 28), // Extra left padding for the border
                   child: Row(
                     children: [
+                      // --- CIRCULAR GRADIENT AVATAR ---
                       Container(
-                        height: 60, width: 60,
-                        decoration: BoxDecoration(gradient: LinearGradient(colors: widget.gradient, begin: Alignment.topLeft, end: Alignment.bottomRight), shape: BoxShape.circle),
-                        child: const Center(child: Icon(Icons.apartment_rounded, color: Colors.white, size: 28)),
+                        height: 56, 
+                        width: 56,
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Color(0xFF00E5FF), Color(0xFF2979FF)], // Cyan to Blue gradient
+                            begin: Alignment.topLeft, 
+                            end: Alignment.bottomRight,
+                          ),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.domain, color: Colors.white, size: 28) // Building Icon
+                        ),
                       ),
-                      const SizedBox(width: 20),
+                      const SizedBox(width: 16),
+                      
+                      // --- COMPANY TEXT INFO ---
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(widget.company.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Color(0xFF1A1A1A)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                            Text(
+                              widget.company.name, 
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF1A1A1A)), 
+                              maxLines: 1, 
+                              overflow: TextOverflow.ellipsis
+                            ),
                             const SizedBox(height: 6),
+                            
+                            // --- LIGHT GREY PILL BADGE FOR GST/BANK ---
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
                               child: Text(
                                 widget.company.gstin.isNotEmpty ? 'GST: ${widget.company.gstin}' : 'Bank: ${widget.company.bankName}',
                                 style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w600),
@@ -633,12 +693,34 @@ class _HoverableCompanyCardState extends State<HoverableCompanyCard> {
                           ],
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      
+                      // --- CLOUD SYNC BADGE ---
                       Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(color: _isHovered ? widget.gradient.first.withOpacity(0.1) : Colors.grey.shade50, shape: BoxShape.circle),
-                        child: Icon(Icons.arrow_forward_ios_rounded, size: 16, color: _isHovered ? widget.gradient.first : Colors.grey.shade400),
-                      )
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: widget.isOnline ? Colors.green.shade50 : Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              widget.isOnline ? Icons.cloud_done_rounded : Icons.cloud_off_rounded, 
+                              color: widget.isOnline ? Colors.green.shade600 : Colors.red.shade600, 
+                              size: 16
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              widget.isOnline ? 'Cloud Sync' : 'Offline', 
+                              style: TextStyle(
+                                color: widget.isOnline ? Colors.green.shade700 : Colors.red.shade700, 
+                                fontWeight: FontWeight.bold, 
+                                fontSize: 12
+                              )
+                            )
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),

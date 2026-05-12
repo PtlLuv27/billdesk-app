@@ -1,8 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-// --- ADD THIS IMPORT (Adjust path if necessary) ---
-import '../../../core/services/secure_storage_service.dart';
-
 class AuthNotifier extends Notifier<String?> {
   final _supabase = Supabase.instance.client;
 

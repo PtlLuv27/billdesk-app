@@ -44,7 +44,6 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
   late TextEditingController _purAdd2Ctrl;
   late TextEditingController _gstinCtrl;
   
-  // --- NEW: DYNAMIC PARTICULARS CONTROLLERS ---
   late TextEditingController _particularsCtrl;
   List<TextEditingController> _extraParticularCtrls = [];
 
@@ -82,7 +81,6 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     _purAdd2Ctrl = TextEditingController(text: widget.purchaser.address2);
     _gstinCtrl = TextEditingController(text: widget.purchaser.gstin);
 
-    // --- NEW: PARSE COMMA-SEPARATED PARTICULARS ON LOAD ---
     final parts = widget.purchaser.particulars.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
     if (parts.isNotEmpty) {
       _particularsCtrl = TextEditingController(text: parts.first);
@@ -122,7 +120,6 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     _purAdd2Ctrl.dispose();
     _gstinCtrl.dispose();
     
-    // Clean up dynamic controllers safely
     _particularsCtrl.dispose();
     for (var ctrl in _extraParticularCtrls) {
       ctrl.dispose();
@@ -159,7 +156,6 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
   Future<Map<String, dynamic>> _saveAllChanges() async {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
 
-    // --- NEW: COMBINE ALL PARTICULARS INTO A COMMA-SEPARATED STRING ---
     final combinedParticulars = [
       _particularsCtrl.text.trim(),
       ..._extraParticularCtrls.map((c) => c.text.trim())
@@ -189,13 +185,14 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
       isDeleted: widget.invoice.isDeleted,
     );
 
+    // --- REVERTED BACK TO PERMANENT DATABASE UPDATES ---
     final updatedPurchaser = Purchaser(
       id: widget.purchaser.id, 
       userId: widget.purchaser.userId,
       name: _purNameCtrl.text.trim(), 
       address1: _purAdd1Ctrl.text.trim(),
       address2: _purAdd2Ctrl.text.trim(), 
-      particulars: combinedParticulars, // <-- Save combined string!
+      particulars: combinedParticulars, 
       gstin: _gstinCtrl.text.trim(),
       hsnNo: _hsnCtrl.text.trim(), 
       sgstRate: double.tryParse(_sgstCtrl.text) ?? 0.0, 
@@ -221,6 +218,7 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
       isDeleted: widget.company.isDeleted,
     );
 
+    // Saves ALL entities back to the database provider
     await ref.read(invoiceProvider.notifier).updateInvoice(updatedInvoice);
     await ref.read(purchaserProvider.notifier).updatePurchaser(updatedPurchaser);
     await ref.read(companyProvider.notifier).updateCompany(updatedCompany);
@@ -269,7 +267,6 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     );
   }
 
-  // --- NEW: CUSTOM DYNAMIC PARTICULARS CELL ---
   Widget _dynamicParticularsCell() {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
@@ -367,7 +364,6 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
                   ),
                   TableRow(
                     children: [
-                      // --- REPLACED STATIC CELL WITH DYNAMIC WIDGET ---
                       _dynamicParticularsCell(),
                       _editableCell(_hsnCtrl, weight: FontWeight.bold),
                       _editableCell(_nosCtrl, isNumber: true, weight: FontWeight.bold),
@@ -436,7 +432,7 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
                 children: [
                   TableRow(
                     children: [
-                      Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text('TOTAL AMOUNT', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue))),
+                      const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('TOTAL AMOUNT', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue))),
                       Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(_totalAmount.toStringAsFixed(0), textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue))),
                     ]
                   )
@@ -491,7 +487,7 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
                       ],
                     )
                   ),
-                  Expanded(flex: 75, child: const SizedBox()),
+                  const Expanded(flex: 75, child: SizedBox()),
                 ],
               ),
               
@@ -508,14 +504,15 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
           ),
         ),
       ),
-      // --- NEW DUAL BUTTON ROW ---
+      // --- DUAL BUTTON ROW ---
       floatingActionButton: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          FloatingActionButton.extended(
+          FloatingActionButton(
             heroTag: 'download_btn_sales', 
             backgroundColor: Colors.blueGrey, 
             foregroundColor: Colors.white,
+            tooltip: 'Download PDF',
             onPressed: () async {
               final updatedData = await _saveAllChanges(); 
               final pdfBytes = await PdfGenerator.generateInvoice(
@@ -528,12 +525,32 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
                 filename: 'Invoice_${widget.invoice.billNo}.pdf'
               );
             },
-            icon: const Icon(Icons.download_rounded),
-            label: const Text('Download PDF'),
+            child: const Icon(Icons.download_rounded),
           ),
-          
-          const SizedBox(width: 16), 
-          
+          const SizedBox(width: 12),
+          FloatingActionButton.extended(
+            heroTag: 'view_btn_sales',
+            backgroundColor: Colors.indigoAccent, 
+            foregroundColor: Colors.white,
+            onPressed: () async {
+              final updatedData = await _saveAllChanges();
+              if (mounted) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => InvoicePreviewScreen(
+                      invoice: updatedData['invoice'],
+                      company: updatedData['company'],
+                      purchaser: updatedData['purchaser'],
+                    ),
+                  ),
+                );
+              }
+            },
+            icon: const Icon(Icons.visibility),
+            label: const Text('View Bill'),
+          ),
+          const SizedBox(width: 12),
           FloatingActionButton.extended(
             heroTag: 'save_btn_sales',
             backgroundColor: Colors.blueAccent, 
@@ -543,6 +560,38 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
             label: const Text('Save Changes'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// --- PREVIEW SCREEN WIDGET ---
+class InvoicePreviewScreen extends StatelessWidget {
+  final Invoice invoice;
+  final Company company;
+  final Purchaser purchaser;
+
+  const InvoicePreviewScreen({
+    super.key, 
+    required this.invoice, 
+    required this.company, 
+    required this.purchaser
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Bill #${invoice.billNo} Preview'),
+        backgroundColor: Colors.indigo,
+        foregroundColor: Colors.white,
+      ),
+      body: PdfPreview(
+        build: (format) => PdfGenerator.generateInvoice(invoice, company, purchaser),
+        allowSharing: true,
+        allowPrinting: true,
+        canChangeOrientation: false,
+        canChangePageFormat: false,
       ),
     );
   }

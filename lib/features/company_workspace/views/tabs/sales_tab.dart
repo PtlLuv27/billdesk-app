@@ -21,17 +21,13 @@ class _SalesTabState extends ConsumerState<SalesTab> {
   final _formKey = GlobalKey<FormState>();
   
   Purchaser? _selectedPurchaser;
-  
   DateTime _billDate = DateTime.now();
   
   // --- PARTY FIELDS CONTROLLERS ---
   final _partyAddressCtrl = TextEditingController();
   final _partyAddress2Ctrl = TextEditingController();
   final _partyParticularsCtrl = TextEditingController();
-  
-  // --- NEW: LIST FOR EXTRA ITEMS ---
   List<TextEditingController> _extraParticularCtrls = [];
-
   final _partyGstinCtrl = TextEditingController();
   final _partyHsnNoCtrl = TextEditingController();
   final _partySgstCtrl = TextEditingController();
@@ -54,7 +50,6 @@ class _SalesTabState extends ConsumerState<SalesTab> {
   double _subTotal = 0.0;
   double _gstAmount = 0.0;
   
-  // --- INDIVIDUAL GST AMOUNTS ---
   double _cgstAmount = 0.0;
   double _sgstAmount = 0.0;
   double _igstAmount = 0.0;
@@ -66,7 +61,6 @@ class _SalesTabState extends ConsumerState<SalesTab> {
     return '${formatter.format(val)}/-';
   }
 
-  // --- NEW: BULLETPROOF NUMBER PARSER ---
   double _parseNumber(String val) {
     if (val.isEmpty) return 0.0;
     return double.tryParse(val.replaceAll(',', '.')) ?? 0.0;
@@ -77,12 +71,9 @@ class _SalesTabState extends ConsumerState<SalesTab> {
     _partyAddressCtrl.dispose();
     _partyAddress2Ctrl.dispose();
     _partyParticularsCtrl.dispose();
-    
-    // Clean up dynamic controllers
     for (var ctrl in _extraParticularCtrls) {
       ctrl.dispose();
     }
-    
     _partyGstinCtrl.dispose();
     _partyHsnNoCtrl.dispose();
     _partySgstCtrl.dispose();
@@ -114,11 +105,15 @@ class _SalesTabState extends ConsumerState<SalesTab> {
         double cgst = _parseNumber(_partyCgstCtrl.text);
         double igst = _parseNumber(_partyIgstCtrl.text);
         
-        _sgstAmount = (_subTotal * (sgst / 100)).roundToDouble();
-        _cgstAmount = (_subTotal * (cgst / 100)).roundToDouble();
-        _igstAmount = (_subTotal * (igst / 100)).roundToDouble();
-        
+        _sgstAmount = (_subTotal * (sgst / 100));
+        _cgstAmount = (_subTotal * (cgst / 100));
+        _igstAmount = (_subTotal * (igst / 100));
         _gstAmount = _sgstAmount + _cgstAmount + _igstAmount;
+
+        _sgstAmount = _sgstAmount.roundToDouble();
+        _cgstAmount = _cgstAmount.roundToDouble();
+        _igstAmount = _igstAmount.roundToDouble();
+        _gstAmount = _gstAmount.roundToDouble();
       } else {
         _sgstAmount = 0.0;
         _cgstAmount = 0.0;
@@ -135,6 +130,14 @@ class _SalesTabState extends ConsumerState<SalesTab> {
       initialDate: _billDate,
       firstDate: DateTime(2020),
       lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(primary: Colors.blueAccent, onPrimary: Colors.white),
+          ),
+          child: child!,
+        );
+      },
     );
     if (picked != null) {
       setState(() => _billDate = picked);
@@ -157,35 +160,33 @@ class _SalesTabState extends ConsumerState<SalesTab> {
       final activeCompany = ref.read(activeCompanyProvider);
       if (activeCompany == null) return;
 
-      // --- NEW: COMBINE ALL PARTICULARS INTO A COMMA-SEPARATED STRING ---
       final combinedParticulars = [
         _partyParticularsCtrl.text.trim(),
         ..._extraParticularCtrls.map((c) => c.text.trim())
       ].where((e) => e.isNotEmpty).join(', ');
 
-      final updatedPurchaser = Purchaser(
+      // TEMPORARY SNAPSHOT: Edits apply ONLY to this invoice, not the database.
+      final tempPurchaserSnapshot = Purchaser(
         id: _selectedPurchaser!.id,
         userId: _selectedPurchaser!.userId,
         name: _selectedPurchaser!.name,
         address1: _partyAddressCtrl.text.trim(), 
         address2: _partyAddress2Ctrl.text.trim(),
-        particulars: combinedParticulars, // Save combined string!
+        particulars: combinedParticulars, 
         gstin: _partyGstinCtrl.text.trim(),      
         hsnNo: _partyHsnNoCtrl.text.trim(),
         sgstRate: _parseNumber(_partySgstCtrl.text), 
         cgstRate: _parseNumber(_partyCgstCtrl.text), 
         igstRate: _parseNumber(_partyIgstCtrl.text), 
-        lastUpdated: DateTime.now().millisecondsSinceEpoch,
+        lastUpdated: _selectedPurchaser!.lastUpdated,
       );
-
-      await ref.read(purchaserProvider.notifier).updatePurchaser(updatedPurchaser);
 
       final invoice = Invoice(
         id: const Uuid().v4(),
         userId: currentUserId, 
         companyId: activeCompany.id,
         type: 'sales',
-        purchaserId: updatedPurchaser.id, 
+        purchaserId: _selectedPurchaser!.id, 
         billNo: _billNoController.text.trim(),
         billDate: _billDate.millisecondsSinceEpoch,
         truckNo: _truckNoController.text.trim(),
@@ -193,7 +194,7 @@ class _SalesTabState extends ConsumerState<SalesTab> {
         licNo: _licNoController.text.trim(), 
         nos: int.tryParse(_nosController.text) ?? 1,
         unit: _selectedUnit,
-        quantity: _parseNumber(_quantityController.text),
+        quantity: _selectedUnit == 'NOS' ? _parseNumber(_nosController.text) : _parseNumber(_quantityController.text),
         rate: _parseNumber(_rateController.text),        
         amount: _amount,
         labourCharge: _parseNumber(_labourController.text), 
@@ -206,7 +207,7 @@ class _SalesTabState extends ConsumerState<SalesTab> {
       await ref.read(invoiceProvider.notifier).addInvoice(invoice);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invoice saved successfully!')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invoice saved successfully!'), backgroundColor: Colors.green));
         
         Navigator.push(
           context,
@@ -214,7 +215,7 @@ class _SalesTabState extends ConsumerState<SalesTab> {
             builder: (context) => EditableInvoiceScreen(
               invoice: invoice, 
               company: activeCompany, 
-              purchaser: updatedPurchaser, 
+              purchaser: tempPurchaserSnapshot, 
             ),
           ),
         );
@@ -235,42 +236,87 @@ class _SalesTabState extends ConsumerState<SalesTab> {
           _partyCgstCtrl.clear();
           _partyIgstCtrl.clear();
           _billDate = DateTime.now();
+          _billNoController.clear();
+          _truckNoController.clear();
+          _driverNameController.clear();
+          _licNoController.clear();
           _calculateTotals();
         });
       }
     }
   }
 
+  // A clean, modern input decoration for the continuous form
+  InputDecoration _customInputDeco(String label, {IconData? icon}) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+      prefixIcon: icon != null ? Icon(icon, color: Colors.blueAccent, size: 20) : null,
+      filled: true,
+      fillColor: Colors.white,
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.blueAccent, width: 2)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final purchasers = ref.watch(purchaserProvider);
+    final sortedPurchasers = purchasers.toList()..sort((a, b) => a.name.compareTo(b.name));
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF4F7FC), // Soft background to make white inputs pop
       body: Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.all(16.0),
           children: [
-            const Text('Create Sales Invoice', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const Text('Create Sales Invoice', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF203A43))),
+            const SizedBox(height: 8),
             const Divider(),
+            const SizedBox(height: 8),
             
+            // --- FULL WIDTH BILL DATE ---
             OutlinedButton.icon(
-              icon: const Icon(Icons.calendar_today),
-              label: Text('Bill Date: ${DateFormat('dd/MM/yyyy').format(_billDate)}'),
+              icon: const Icon(Icons.calendar_today, size: 18),
+              label: Text(
+                'Bill Date: ${DateFormat('dd/MM/yyyy').format(_billDate)}', 
+                style: const TextStyle(fontWeight: FontWeight.bold)
+              ),
               onPressed: _selectDate,
-              style: OutlinedButton.styleFrom(alignment: Alignment.centerLeft, padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12)),
+              style: OutlinedButton.styleFrom(
+                alignment: Alignment.centerLeft, 
+                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.blueAccent,
+                side: BorderSide(color: Colors.grey.shade300),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             
+            // --- PARTY DROPDOWN ---
             LayoutBuilder(
               builder: (context, constraints) {
                 return DropdownMenu<Purchaser>(
                   width: constraints.maxWidth, 
+                  expandedInsets: EdgeInsets.zero, 
                   enableFilter: true, 
                   requestFocusOnTap: true,
                   label: const Text('Search & Select Purchaser'),
-                  leadingIcon: const Icon(Icons.search),
-                  dropdownMenuEntries: purchasers.map((p) => DropdownMenuEntry<Purchaser>(
+                  leadingIcon: const Icon(Icons.search, color: Colors.blueAccent),
+                  inputDecorationTheme: InputDecorationTheme(
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.blueAccent, width: 2)),
+                  ),
+                  dropdownMenuEntries: sortedPurchasers.map((p) => DropdownMenuEntry<Purchaser>(
                     value: p, 
                     label: p.name,
                   )).toList(),
@@ -281,16 +327,13 @@ class _SalesTabState extends ConsumerState<SalesTab> {
                         _partyAddressCtrl.text = val.address1;
                         _partyAddress2Ctrl.text = val.address2;
 
-                        // --- NEW: PARSE COMMA-SEPARATED PARTICULARS ---
                         final parts = val.particulars.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
                         
-                        // Clear old extra controllers safely
                         for (var ctrl in _extraParticularCtrls) { ctrl.dispose(); }
                         _extraParticularCtrls.clear();
 
                         if (parts.isNotEmpty) {
-                          _partyParticularsCtrl.text = parts.first; // First item remains default
-                          // The rest become dynamic text fields
+                          _partyParticularsCtrl.text = parts.first; 
                           _extraParticularCtrls = parts.skip(1).map((e) => TextEditingController(text: e)).toList();
                         } else {
                           _partyParticularsCtrl.text = '';
@@ -308,189 +351,254 @@ class _SalesTabState extends ConsumerState<SalesTab> {
                 );
               }
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
 
+            // --- CONDITIONALLY RENDERED PARTY DETAILS ---
             if (_selectedPurchaser != null) ...[
               Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50.withOpacity(0.4), 
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.shade100)
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Edit Party Details (Auto-Saves on Bill Creation)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
-                    const SizedBox(height: 10),
                     Row(
                       children: [
-                        Expanded(child: TextFormField(controller: _partyAddressCtrl, decoration: const InputDecoration(labelText: 'Address 1', isDense: true, filled: true, fillColor: Colors.white))),
-                        const SizedBox(width: 8),
-                        Expanded(child: TextFormField(controller: _partyAddress2Ctrl, decoration: const InputDecoration(labelText: 'Address 2', isDense: true, filled: true, fillColor: Colors.white))),
+                        Icon(Icons.info_outline, size: 16, color: Colors.blue.shade700),
+                        const SizedBox(width: 6),
+                        Text('Edits apply to this bill only', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.blue.shade700, fontSize: 12)),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(child: TextFormField(controller: _partyAddressCtrl, decoration: _customInputDeco('Address 1'))),
+                        const SizedBox(width: 12),
+                        Expanded(child: TextFormField(controller: _partyAddress2Ctrl, decoration: _customInputDeco('Address 2'))),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // --- NEW: DEFAULT ITEM WITH PLUS ICON ---
                         Expanded(
                           flex: 2, 
                           child: TextFormField(
                             controller: _partyParticularsCtrl, 
-                            decoration: InputDecoration(
-                              labelText: 'Default Item / Particulars', 
-                              isDense: true, 
-                              filled: true, 
-                              fillColor: Colors.white,
+                            decoration: _customInputDeco('Default Item / Particulars').copyWith(
                               suffixIcon: IconButton(
                                 icon: const Icon(Icons.add_circle, color: Colors.blueAccent),
-                                onPressed: () {
-                                  setState(() {
-                                    // Add a new empty controller to the list
-                                    _extraParticularCtrls.add(TextEditingController());
-                                  });
-                                }
+                                onPressed: () => setState(() => _extraParticularCtrls.add(TextEditingController())),
                               )
                             )
                           )
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(child: TextFormField(controller: _partyHsnNoCtrl, decoration: const InputDecoration(labelText: 'HSN No.', isDense: true, filled: true, fillColor: Colors.white))),
+                        const SizedBox(width: 12),
+                        Expanded(child: TextFormField(controller: _partyHsnNoCtrl, decoration: _customInputDeco('HSN No.'))),
                       ],
                     ),
                     
-                    // --- NEW: DYNAMIC LIST OF ADDED ITEMS ---
                     if (_extraParticularCtrls.isNotEmpty) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 12),
                       ...List.generate(_extraParticularCtrls.length, (index) {
                         return Padding(
-                          padding: const EdgeInsets.only(bottom: 8.0),
+                          padding: const EdgeInsets.only(bottom: 12.0),
                           child: Row(
                             children: [
                               Expanded(
                                 flex: 2,
                                 child: TextFormField(
                                   controller: _extraParticularCtrls[index],
-                                  decoration: InputDecoration(
-                                    labelText: 'Additional Item ${index + 1}',
-                                    isDense: true,
-                                    filled: true,
-                                    fillColor: Colors.white,
+                                  decoration: _customInputDeco('Additional Item ${index + 1}').copyWith(
                                     suffixIcon: IconButton(
                                       icon: const Icon(Icons.remove_circle, color: Colors.redAccent),
-                                      onPressed: () {
-                                        setState(() {
-                                          _extraParticularCtrls[index].dispose();
-                                          _extraParticularCtrls.removeAt(index);
-                                        });
-                                      }
+                                      onPressed: () => setState(() {
+                                        _extraParticularCtrls[index].dispose();
+                                        _extraParticularCtrls.removeAt(index);
+                                      }),
                                     )
-                                  ),
+                                  )
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              const Expanded(child: SizedBox()), // Keeps layout balanced with HSN No.
+                              const SizedBox(width: 12),
+                              const Expanded(child: SizedBox()), 
                             ],
                           )
                         );
                       })
                     ],
 
-                    const SizedBox(height: 8),
-                    TextFormField(controller: _partyGstinCtrl, decoration: const InputDecoration(labelText: 'GSTIN', isDense: true, filled: true, fillColor: Colors.white), textCapitalization: TextCapitalization.characters),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
+                    TextFormField(controller: _partyGstinCtrl, decoration: _customInputDeco('GSTIN'), textCapitalization: TextCapitalization.characters),
+                    const SizedBox(height: 12),
                     Row(
                       children: [
-                        Expanded(child: TextFormField(controller: _partySgstCtrl, decoration: const InputDecoration(labelText: 'SGST %', isDense: true, filled: true, fillColor: Colors.white), keyboardType: TextInputType.number, onChanged: (_) => _calculateTotals())),
-                        const SizedBox(width: 8),
-                        Expanded(child: TextFormField(controller: _partyCgstCtrl, decoration: const InputDecoration(labelText: 'CGST %', isDense: true, filled: true, fillColor: Colors.white), keyboardType: TextInputType.number, onChanged: (_) => _calculateTotals())),
-                        const SizedBox(width: 8),
-                        Expanded(child: TextFormField(controller: _partyIgstCtrl, decoration: const InputDecoration(labelText: 'IGST %', isDense: true, filled: true, fillColor: Colors.white), keyboardType: TextInputType.number, onChanged: (_) => _calculateTotals())),
+                        Expanded(child: TextFormField(controller: _partySgstCtrl, decoration: _customInputDeco('SGST %'), keyboardType: TextInputType.number, onChanged: (_) => _calculateTotals())),
+                        const SizedBox(width: 12),
+                        Expanded(child: TextFormField(controller: _partyCgstCtrl, decoration: _customInputDeco('CGST %'), keyboardType: TextInputType.number, onChanged: (_) => _calculateTotals())),
+                        const SizedBox(width: 12),
+                        Expanded(child: TextFormField(controller: _partyIgstCtrl, decoration: _customInputDeco('IGST %'), keyboardType: TextInputType.number, onChanged: (_) => _calculateTotals())),
                       ],
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
             ],
-            
-            Row(
-              children: [
-                Expanded(child: TextFormField(controller: _billNoController, decoration: const InputDecoration(labelText: 'Bill No.', border: OutlineInputBorder()), validator: (v) => v == null || v.isEmpty ? 'Required' : null, textInputAction: TextInputAction.next)),
-                const SizedBox(width: 10),
-                Expanded(child: TextFormField(controller: _truckNoController, decoration: const InputDecoration(labelText: 'Truck No.', border: OutlineInputBorder()), textInputAction: TextInputAction.next)),
-              ],
-            ),
-            const SizedBox(height: 10),
 
+            // --- BILL NO & TRUCK NO (MOVED UP) ---
             Row(
               children: [
-                Expanded(child: TextFormField(controller: _driverNameController, decoration: const InputDecoration(labelText: 'Driver Name', border: OutlineInputBorder()), textInputAction: TextInputAction.next)),
-                const SizedBox(width: 10),
-                Expanded(child: TextFormField(controller: _licNoController, decoration: const InputDecoration(labelText: 'Lic No.', border: OutlineInputBorder()), textInputAction: TextInputAction.next)),
+                Expanded(
+                  child: TextFormField(
+                    controller: _billNoController, 
+                    decoration: _customInputDeco('Bill No.'), 
+                    validator: (v) => v == null || v.isEmpty ? 'Required' : null, 
+                    textInputAction: TextInputAction.next
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: _truckNoController, 
+                    decoration: _customInputDeco('Truck No.'), 
+                    textInputAction: TextInputAction.next
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 10),
-            
+            const SizedBox(height: 12),
+
+            // --- INVOICE MATH ITEMS ---
             Row(
               children: [
-                Expanded(child: TextFormField(controller: _nosController, decoration: const InputDecoration(labelText: 'NOS.', border: OutlineInputBorder()), keyboardType: TextInputType.number, textInputAction: TextInputAction.next)),
-                const SizedBox(width: 10),
+                Expanded(
+                  child: TextFormField(
+                    controller: _nosController, 
+                    decoration: _customInputDeco('NOS.'), 
+                    keyboardType: TextInputType.number, 
+                    textInputAction: TextInputAction.next,
+                    onChanged: (_) => _calculateTotals()
+                  )
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    decoration: const InputDecoration(labelText: 'Unit', border: OutlineInputBorder()),
+                    decoration: _customInputDeco('Unit'),
                     initialValue: _selectedUnit,
-                    items: ['CBM', 'KG'].map((u) => DropdownMenuItem(value: u, child: Text(u))).toList(),
+                    icon: const Icon(Icons.keyboard_arrow_down, color: Colors.blueAccent),
+                    items: ['CBM', 'KG', 'NOS'].map((u) => DropdownMenuItem(value: u, child: Text(u))).toList(),
                     onChanged: (val) { setState(() => _selectedUnit = val!); _calculateTotals(); },
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Row(
               children: [
-                Expanded(child: TextFormField(controller: _quantityController, decoration: InputDecoration(labelText: 'Quantity ($_selectedUnit)', border: const OutlineInputBorder()), keyboardType: TextInputType.number, textInputAction: TextInputAction.next, onChanged: (_) => _calculateTotals())),
-                const SizedBox(width: 10),
-                Expanded(child: TextFormField(controller: _rateController, decoration: const InputDecoration(labelText: 'Rate (₹)', border: OutlineInputBorder()), keyboardType: TextInputType.number, textInputAction: TextInputAction.next, onChanged: (_) => _calculateTotals())),
+                if (_selectedUnit != 'NOS') ...[
+                  Expanded(
+                    child: TextFormField(
+                      controller: _quantityController, 
+                      decoration: _customInputDeco('Quantity ($_selectedUnit)'), 
+                      keyboardType: TextInputType.number, 
+                      textInputAction: TextInputAction.next, 
+                      onChanged: (_) => _calculateTotals()
+                    )
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                Expanded(
+                  child: TextFormField(
+                    controller: _rateController, 
+                    decoration: _customInputDeco('Rate (₹)'), 
+                    keyboardType: TextInputType.number, 
+                    textInputAction: TextInputAction.next, 
+                    onChanged: (_) => _calculateTotals()
+                  )
+                ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             TextFormField(
               controller: _labourController,
-              decoration: const InputDecoration(labelText: 'Labour Charge (₹)', border: OutlineInputBorder()),
+              decoration: _customInputDeco('Labour Charge (₹)'),
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.done,
               onChanged: (_) => _calculateTotals(),
             ),
+            const SizedBox(height: 12),
             
-            const SizedBox(height: 20),
-            
+            // --- DRIVER NAME & LIC NO ---
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _driverNameController, 
+                    decoration: _customInputDeco('Driver Name'), 
+                    textInputAction: TextInputAction.next
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: _licNoController, 
+                    decoration: _customInputDeco('Lic No.'), 
+                    textInputAction: TextInputAction.next
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // --- FINAL SUMMARY BOX ---
             Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50.withOpacity(0.6), 
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.blue.shade100, width: 1.5)
+              ),
               child: Column(
                 children: [
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Amount:'), Text('₹${formatIndianCurrency(_amount)}')]),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Sub Total:'), Text('₹${formatIndianCurrency(_subTotal)}')]),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('Amount:', style: TextStyle(color: Colors.blueGrey.shade700, fontWeight: FontWeight.w600)), Text('₹${formatIndianCurrency(_amount)}', style: const TextStyle(fontWeight: FontWeight.bold))]),
+                  const SizedBox(height: 6),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('Sub Total:', style: TextStyle(color: Colors.blueGrey.shade700, fontWeight: FontWeight.w600)), Text('₹${formatIndianCurrency(_subTotal)}', style: const TextStyle(fontWeight: FontWeight.bold))]),
                   
-                  const SizedBox(height: 8),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('CGST (${_partyCgstCtrl.text.isEmpty ? "0" : _partyCgstCtrl.text}%):', style: TextStyle(color: Colors.grey.shade700)), Text('₹${formatIndianCurrency(_cgstAmount)}', style: TextStyle(color: Colors.grey.shade700))]),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('SGST (${_partySgstCtrl.text.isEmpty ? "0" : _partySgstCtrl.text}%):', style: TextStyle(color: Colors.grey.shade700)), Text('₹${formatIndianCurrency(_sgstAmount)}', style: TextStyle(color: Colors.grey.shade700))]),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('IGST (${_partyIgstCtrl.text.isEmpty ? "0" : _partyIgstCtrl.text}%):', style: TextStyle(color: Colors.grey.shade700)), Text('₹${formatIndianCurrency(_igstAmount)}', style: TextStyle(color: Colors.grey.shade700))]),
+                  const SizedBox(height: 12),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('CGST (${_partyCgstCtrl.text.isEmpty ? "0" : _partyCgstCtrl.text}%):', style: TextStyle(color: Colors.grey.shade600)), Text('₹${formatIndianCurrency(_cgstAmount)}', style: TextStyle(color: Colors.grey.shade600))]),
+                  const SizedBox(height: 4),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('SGST (${_partySgstCtrl.text.isEmpty ? "0" : _partySgstCtrl.text}%):', style: TextStyle(color: Colors.grey.shade600)), Text('₹${formatIndianCurrency(_sgstAmount)}', style: TextStyle(color: Colors.grey.shade600))]),
+                  const SizedBox(height: 4),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('IGST (${_partyIgstCtrl.text.isEmpty ? "0" : _partyIgstCtrl.text}%):', style: TextStyle(color: Colors.grey.shade600)), Text('₹${formatIndianCurrency(_igstAmount)}', style: TextStyle(color: Colors.grey.shade600))]),
                   
-                  const Divider(),
+                  const Divider(height: 24, thickness: 1.5),
                   Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                    const Text('Total Amount:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)), 
-                    Text('₹${formatIndianCurrency(_totalAmount)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.blue))
+                    const Text('Total Amount:', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Color(0xFF203A43))), 
+                    Text('₹${formatIndianCurrency(_totalAmount)}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 22, color: Colors.blueAccent))
                   ]),
                 ],
               ),
             ),
             
-            const SizedBox(height: 30),
+            const SizedBox(height: 24),
+            
+            // --- SAVE BUTTON ---
             ElevatedButton(
               onPressed: _saveInvoice,
-              style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: Colors.blueAccent, foregroundColor: Colors.white),
-              child: const Text('Save Invoice', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16), 
+                backgroundColor: Colors.blueAccent, 
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 2,
+              ),
+              child: const Text('Save Invoice', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.0)),
             ),
+            const SizedBox(height: 40),
           ],
         ),
       ),
