@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart'; 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:local_auth/local_auth.dart'; 
+import 'package:shorebird_code_push/shorebird_code_push.dart'; 
+import 'package:shared_preferences/shared_preferences.dart'; 
 import '../../models/company_model.dart';
 import '../company_workspace/providers/company_provider.dart';
 import 'create_company_screen.dart';
@@ -26,16 +29,42 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
   bool _isSyncing = false;
   bool _isOnline = true; 
   
-  // --- 🔥 Key to programmatically trigger the swipe-to-refresh animation ---
   final GlobalKey<RefreshIndicatorState> _refreshIndicatorKey = GlobalKey<RefreshIndicatorState>();
+  final updater = ShorebirdUpdater(); 
+
+  List<Company> _orderedCompanies = [];
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Trigger the visual refresh spinner on initial load too!
       _refreshIndicatorKey.currentState?.show();
+      _checkForOtaUpdates(); 
     });
+  }
+
+  Future<void> _checkForOtaUpdates() async {
+    try {
+      final status = await updater.checkForUpdate();
+      if (status == UpdateStatus.outdated && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('New Update Available! Downloading in background...'), backgroundColor: Colors.blueAccent, duration: Duration(seconds: 3)),
+        );
+        await updater.update();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Update ready! Please restart the app to apply changes.'),
+              backgroundColor: Colors.green.shade700,
+              duration: const Duration(days: 1), 
+              action: SnackBarAction(label: 'OK', textColor: Colors.white, onPressed: () {}),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Shorebird update check failed: $e');
+    }
   }
 
   Future<void> _performInitialSync() async {
@@ -45,7 +74,7 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
 
     bool isConnected = true;
     try {
-      await Supabase.instance.client.auth.getUser().timeout(const Duration(seconds: 5));
+      await Supabase.instance.client.auth.getUser().timeout(const Duration(seconds: 10));
     } catch (e) {
       debugPrint("Connectivity check failed. User is offline: $e");
       isConnected = false;
@@ -62,17 +91,65 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
         _isOnline = isConnected; 
         _isSyncing = false;
       });
+      Future.delayed(const Duration(milliseconds: 100), _loadAndSortCompanies);
+    }
+  }
+
+  Future<void> _loadAndSortCompanies() async {
+    final unsortedCompanies = ref.read(companyProvider);
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedOrderString = prefs.getString('company_order');
+      
+      if (savedOrderString != null && savedOrderString.isNotEmpty) {
+        final List<dynamic> savedIds = jsonDecode(savedOrderString);
+        
+        List<Company> newOrderedList = [];
+        for (String id in savedIds) {
+          final comp = unsortedCompanies.where((c) => c.id == id).firstOrNull;
+          if (comp != null) newOrderedList.add(comp);
+        }
+        
+        for (var comp in unsortedCompanies) {
+          if (!newOrderedList.any((c) => c.id == comp.id)) {
+            newOrderedList.add(comp);
+          }
+        }
+        
+        setState(() => _orderedCompanies = newOrderedList);
+      } else {
+        setState(() => _orderedCompanies = List.from(unsortedCompanies));
+      }
+    } catch (e) {
+      setState(() => _orderedCompanies = List.from(unsortedCompanies));
+    }
+  }
+
+  Future<void> _onReorder(int oldIndex, int newIndex) async {
+    setState(() {
+      if (newIndex > oldIndex) {
+        newIndex -= 1;
+      }
+      final Company item = _orderedCompanies.removeAt(oldIndex);
+      _orderedCompanies.insert(newIndex, item);
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final List<String> orderedIds = _orderedCompanies.map((c) => c.id).toList();
+      await prefs.setString('company_order', jsonEncode(orderedIds));
+    } catch (e) {
+      debugPrint('Failed to save company order: $e');
     }
   }
 
   Future<void> _logOutOfAccount(String emailToLogOut, bool isActiveAccount, BuildContext context) async {
     final storageService = ref.read(secureStorageProvider);
-    
     await storageService.removeSession(emailToLogOut);
 
     if (isActiveAccount) {
       await Supabase.instance.client.auth.signOut();
-      
       final remainingAccounts = await storageService.getSavedEmails();
       
       if (remainingAccounts.isNotEmpty) {
@@ -90,11 +167,7 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
       }
       
       if (context.mounted) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const AuthWrapper()),
-          (route) => false,
-        );
+        Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const AuthWrapper()), (route) => false);
       }
     }
   }
@@ -112,10 +185,7 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
 
     if (canAuthenticateWithBiometrics && mainContext.mounted) {
       try {
-        final bool didAuthenticate = await auth.authenticate(
-          localizedReason: 'Please authenticate to unlock ${company.name}',
-        );
-        
+        final bool didAuthenticate = await auth.authenticate(localizedReason: 'Please authenticate to unlock ${company.name}');
         if (didAuthenticate) {
           ref.read(activeCompanyProvider.notifier).setCompany(company);
           Navigator.push(mainContext, MaterialPageRoute(builder: (_) => const CompanyWorkspaceScreen()));
@@ -145,9 +215,7 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
             if (pinCtrl.text == correctPin) {
               FocusManager.instance.primaryFocus?.unfocus();
               await Future.delayed(const Duration(milliseconds: 150));
-              if (dialogContext.mounted) {
-                Navigator.pop(dialogContext, true); 
-              }
+              if (dialogContext.mounted) Navigator.pop(dialogContext, true); 
             } else {
               setState(() => errorText = 'Incorrect PIN');
               pinCtrl.clear();
@@ -399,7 +467,10 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final companies = ref.watch(companyProvider);
+    final riverpodCompanies = ref.watch(companyProvider);
+    if (_orderedCompanies.length != riverpodCompanies.length) {
+       _loadAndSortCompanies();
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FC), 
@@ -436,36 +507,36 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
       ),
       body: ScrollConfiguration(
         behavior: ScrollConfiguration.of(context).copyWith(
-          dragDevices: {
-            PointerDeviceKind.touch,
-            PointerDeviceKind.mouse, 
-            PointerDeviceKind.trackpad,
-          },
+          dragDevices: {PointerDeviceKind.touch, PointerDeviceKind.mouse, PointerDeviceKind.trackpad},
         ),
         child: RefreshIndicator(
           key: _refreshIndicatorKey, 
           onRefresh: _performInitialSync,
           color: Colors.blueAccent,
           backgroundColor: Colors.white,
-          child: companies.isEmpty && !_isSyncing
+          child: _orderedCompanies.isEmpty && !_isSyncing
               ? _buildEmptyState()
-              : ListView.builder(
+              : ReorderableListView.builder(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.only(left: 16, right: 16, top: 24, bottom: 100),
-                  itemCount: companies.length,
+                  itemCount: _orderedCompanies.length,
+                  onReorder: _onReorder,
+                  buildDefaultDragHandles: false, // 🔥 REMOVES THE UGLY LINES
+                  proxyDecorator: (Widget child, int index, Animation<double> animation) {
+                    return Material(
+                      color: Colors.transparent,
+                      elevation: 12,
+                      shadowColor: Colors.blueAccent.withOpacity(0.5),
+                      child: child,
+                    );
+                  },
                   itemBuilder: (context, index) {
-                    final company = companies[index];
+                    final company = _orderedCompanies[index];
                     
-                    return TweenAnimationBuilder<double>(
-                      duration: Duration(milliseconds: 400 + (index * 150)), 
-                      tween: Tween(begin: 0.0, end: 1.0),
-                      curve: Curves.easeOutQuart,
-                      builder: (context, value, child) {
-                        return Transform.translate(
-                          offset: Offset(0, 50 * (1 - value)), 
-                          child: Opacity(opacity: value.clamp(0.0, 1.0), child: child),
-                        );
-                      },
+                    // 🔥 Wrap with ReorderableDelayedDragStartListener to drag from anywhere
+                    return ReorderableDelayedDragStartListener(
+                      key: Key(company.id),
+                      index: index,
                       child: HoverableCompanyCard(
                         company: company,
                         isOnline: _isOnline, 
@@ -482,6 +553,9 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
                                 ElevatedButton(
                                   style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
                                   onPressed: () {
+                                    setState(() {
+                                      _orderedCompanies.removeWhere((c) => c.id == company.id);
+                                    });
                                     ref.read(companyProvider.notifier).deleteCompany(company);
                                     Navigator.pop(dialogCtx);
                                   },
@@ -551,7 +625,7 @@ class _GlobalDashboardScreenState extends ConsumerState<GlobalDashboardScreen> {
   }
 }
 
-// --- HOVER WIDGET (UPDATED TO MATCH IMAGE_FCCD95.PNG) ---
+// --- HOVER WIDGET ---
 class HoverableCompanyCard extends StatefulWidget {
   final Company company;
   final bool isOnline; 
@@ -587,7 +661,7 @@ class _HoverableCompanyCardState extends State<HoverableCompanyCard> {
           widget.onTap();
         },
         onTapCancel: () => setState(() => _isHovered = false),
-        onLongPress: () {
+        onDoubleTap: () {
           showModalBottomSheet(
             context: context,
             builder: (ctx) => SafeArea(
@@ -629,13 +703,12 @@ class _HoverableCompanyCardState extends State<HoverableCompanyCard> {
             borderRadius: BorderRadius.circular(20),
             child: Stack(
               children: [
-                // --- THICK LEFT BORDER GRADIENT ---
                 Positioned(
                   left: 0, top: 0, bottom: 0, width: 8,
                   child: Container(
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [Color(0xFF00E5FF), Color(0xFF2979FF)], // Cyan to Blue gradient
+                        colors: [Color(0xFF00E5FF), Color(0xFF2979FF)], 
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                       ),
@@ -644,28 +717,26 @@ class _HoverableCompanyCardState extends State<HoverableCompanyCard> {
                 ),
                 
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20).copyWith(left: 28), // Extra left padding for the border
+                  padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20).copyWith(left: 28), 
                   child: Row(
                     children: [
-                      // --- CIRCULAR GRADIENT AVATAR ---
                       Container(
                         height: 56, 
                         width: 56,
                         decoration: const BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [Color(0xFF00E5FF), Color(0xFF2979FF)], // Cyan to Blue gradient
+                            colors: [Color(0xFF00E5FF), Color(0xFF2979FF)], 
                             begin: Alignment.topLeft, 
                             end: Alignment.bottomRight,
                           ),
                           shape: BoxShape.circle,
                         ),
                         child: const Center(
-                          child: Icon(Icons.domain, color: Colors.white, size: 28) // Building Icon
+                          child: Icon(Icons.domain, color: Colors.white, size: 28) 
                         ),
                       ),
                       const SizedBox(width: 16),
                       
-                      // --- COMPANY TEXT INFO ---
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -678,7 +749,6 @@ class _HoverableCompanyCardState extends State<HoverableCompanyCard> {
                             ),
                             const SizedBox(height: 6),
                             
-                            // --- LIGHT GREY PILL BADGE FOR GST/BANK ---
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
@@ -694,7 +764,6 @@ class _HoverableCompanyCardState extends State<HoverableCompanyCard> {
                         ),
                       ),
                       
-                      // --- CLOUD SYNC BADGE ---
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(

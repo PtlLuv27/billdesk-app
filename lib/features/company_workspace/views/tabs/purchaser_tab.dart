@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart'; // 🔥 ADDED FOR PC SWIPING
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../models/purchaser_model.dart';
 import '../../providers/purchaser_provider.dart';
 import '../edit_purchaser_screen.dart';
 import '../../../authentication/providers/auth_provider.dart';
-// --- NEW IMPORT ---
 import '../party_details_screen.dart';
+import '../../../../core/database/sync_engine.dart'; // 🔥 ADDED FOR CLOUD SYNC
 
 class PurchaserTab extends ConsumerStatefulWidget {
   const PurchaserTab({super.key});
@@ -17,6 +18,12 @@ class PurchaserTab extends ConsumerStatefulWidget {
 
 class _PurchaserTabState extends ConsumerState<PurchaserTab> {
   
+  // --- 🔥 NEW: SYNC FUNCTION ---
+  Future<void> _syncData() async {
+    await SyncEngine.syncAll();
+    ref.invalidate(purchaserProvider);
+  }
+
   // --- ADD PURCHASER DIALOG ---
   void _showAddPurchaserDialog() {
     final formKey = GlobalKey<FormState>();
@@ -144,53 +151,74 @@ class _PurchaserTabState extends ConsumerState<PurchaserTab> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FC),
-      body: purchasers.isEmpty
-          ? const Center(child: Text('No parties/purchasers found. Add one!', style: TextStyle(color: Colors.grey, fontSize: 16, fontWeight: FontWeight.bold)))
-          : ListView.builder(
-              padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100),
-              itemCount: purchasers.length,
-              itemBuilder: (context, index) {
-                final purchaser = purchasers[index];
-                final gradient = _getGradient(index);
+      // --- 🔥 WRAPPED BODY IN SCROLL CONFIGURATION & REFRESH INDICATOR ---
+      body: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(
+          dragDevices: {
+            PointerDeviceKind.touch,
+            PointerDeviceKind.mouse, 
+            PointerDeviceKind.trackpad,
+          },
+        ),
+        child: RefreshIndicator(
+          onRefresh: _syncData,
+          color: Colors.blueAccent,
+          backgroundColor: Colors.white,
+          child: purchasers.isEmpty
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(), // Ensures swipe to refresh works when empty
+                  children: [
+                    SizedBox(height: MediaQuery.of(context).size.height * 0.4),
+                    const Center(child: Text('No parties/purchasers found. Add one!', style: TextStyle(color: Colors.grey, fontSize: 16, fontWeight: FontWeight.bold))),
+                  ],
+                )
+              : ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(), // Ensures pull-to-refresh always works
+                  padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100),
+                  itemCount: purchasers.length,
+                  itemBuilder: (context, index) {
+                    final purchaser = purchasers[index];
+                    final gradient = _getGradient(index);
 
-                return HoverablePartyCard(
-                  purchaser: purchaser,
-                  gradient: gradient,
-                  onTap: () {
-                    // --- NEW: NAVIGATE TO DETAILS SCREEN ---
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => PartyDetailsScreen(party: purchaser, gradient: gradient),
-                      ),
-                    );
-                  },
-                  onEdit: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => EditPurchaserScreen(purchaser: purchaser)));
-                  },
-                  onDelete: () {
-                    showDialog(
-                      context: context,
-                      builder: (dialogCtx) => AlertDialog(
-                        title: const Text('Delete Party?'),
-                        content: const Text('Are you sure you want to remove this party?'),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                            onPressed: () {
-                              ref.read(purchaserProvider.notifier).deletePurchaser(purchaser);
-                              Navigator.pop(dialogCtx);
-                            },
-                            child: const Text('Delete'),
+                    return HoverablePartyCard(
+                      purchaser: purchaser,
+                      gradient: gradient,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => PartyDetailsScreen(party: purchaser, gradient: gradient),
+                          ),
+                        );
+                      },
+                      onEdit: () {
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => EditPurchaserScreen(purchaser: purchaser)));
+                      },
+                      onDelete: () {
+                        showDialog(
+                          context: context,
+                          builder: (dialogCtx) => AlertDialog(
+                            title: const Text('Delete Party?'),
+                            content: const Text('Are you sure you want to remove this party?'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                                onPressed: () {
+                                  ref.read(purchaserProvider.notifier).deletePurchaser(purchaser);
+                                  Navigator.pop(dialogCtx);
+                                },
+                                child: const Text('Delete'),
+                              )
+                            ],
                           )
-                        ],
-                      )
+                        );
+                      },
                     );
                   },
-                );
-              },
-            ),
+                ),
+        ),
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showAddPurchaserDialog,
         backgroundColor: const Color(0xFF203A43),

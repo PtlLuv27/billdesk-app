@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart'; 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
@@ -9,6 +10,8 @@ import '../providers/invoice_provider.dart';
 import '../providers/payment_provider.dart';
 import '../providers/company_provider.dart';
 import '../../authentication/providers/auth_provider.dart'; 
+import '../../../core/database/sync_engine.dart'; 
+import '../providers/purchaser_provider.dart';
 
 class AccountDetailScreen extends ConsumerStatefulWidget {
   final Purchaser purchaser;
@@ -19,19 +22,69 @@ class AccountDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
-  String _filter = 'Sales'; // 'Sales' (They owe us) or 'Purchases' (We owe them)
+  String _filter = 'Sales'; 
+  bool _showFilters = false; // 🔥 Toggles the filter panel visibility
+  DateTimeRange? _dateRange;
 
-  // --- COMMA FORMATTER WITH /- ---
+  @override
+  void initState() {
+    super.initState();
+    // 🔥 Set default date range to the current Financial Year (April 1st to March 31st)
+    final now = DateTime.now();
+    int startYear = now.month < 4 ? now.year - 1 : now.year;
+    _dateRange = DateTimeRange(
+      start: DateTime(startYear, 4, 1),
+      end: DateTime(startYear + 1, 3, 31, 23, 59, 59),
+    );
+  }
+
   String formatIndianCurrency(double val) {
     final formatter = NumberFormat.decimalPattern('en_IN');
     return '₹${formatter.format(val.round())}/-';
   }
 
-  // --- 1. LEFT BUTTON: ADD CREDIT (PAYMENT) ---
+  Future<void> _syncData() async {
+    await SyncEngine.syncAll();
+    ref.invalidate(invoiceProvider);
+    ref.invalidate(paymentProvider);
+    ref.invalidate(purchaserProvider);
+  }
+
+  Future<void> _selectDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      initialDateRange: _dateRange,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Colors.blueAccent,
+              onPrimary: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    
+    if (picked != null) {
+      setState(() {
+        // Adjust the end date to cover the entire last day
+        _dateRange = DateTimeRange(
+          start: picked.start,
+          end: DateTime(picked.end.year, picked.end.month, picked.end.day, 23, 59, 59),
+        );
+      });
+    }
+  }
+
   void _showAddPaymentDialog(bool isReceiving) {
     final amtCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
-    DateTime selectedDate = DateTime.now(); // Track the selected date
+    DateTime selectedDate = DateTime.now(); 
 
     showModalBottomSheet(
       context: context,
@@ -49,7 +102,6 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
               TextField(controller: noteCtrl, decoration: const InputDecoration(labelText: 'Notes (e.g. Cash, Cheque No.)', border: OutlineInputBorder())),
               const SizedBox(height: 10),
               
-              // --- NEW: DATE PICKER FIELD ---
               InkWell(
                 onTap: () async {
                   final pickedDate = await showDatePicker(context: context, initialDate: selectedDate, firstDate: DateTime(2000), lastDate: DateTime(2100));
@@ -78,13 +130,15 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
                   if (currentUserId == null) return;
 
                   final company = ref.read(activeCompanyProvider);
+                  if (company == null) return; 
+
                   final payment = Payment(
                     id: const Uuid().v4(), 
                     userId: currentUserId, 
-                    companyId: company!.id, 
+                    companyId: company.id, 
                     purchaserId: widget.purchaser.id,
                     amount: double.parse(amtCtrl.text), 
-                    date: selectedDate.millisecondsSinceEpoch, // Use the selected date here
+                    date: selectedDate.millisecondsSinceEpoch, 
                     type: isReceiving ? 'received' : 'paid', 
                     notes: noteCtrl.text,
                   );
@@ -101,11 +155,10 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
     );
   }
 
-  // --- 2. RIGHT BUTTON: ADD DEBIT (MANUAL BILL) ---
   void _showAddDebitDialog(bool isSalesMode) {
     final amtCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
-    DateTime selectedDate = DateTime.now(); // Track the selected date
+    DateTime selectedDate = DateTime.now(); 
 
     showModalBottomSheet(
       context: context,
@@ -118,12 +171,11 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
             children: [
               const Text('Record Manual Debit (Bill/Charge)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
-              TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Amount (₹)', border: OutlineInputBorder())),
+              TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Total Amount (₹)', border: OutlineInputBorder())),
               const SizedBox(height: 10),
               TextField(controller: noteCtrl, decoration: const InputDecoration(labelText: 'Bill No. / Description', border: OutlineInputBorder())),
               const SizedBox(height: 10),
 
-              // --- NEW: DATE PICKER FIELD ---
               InkWell(
                 onTap: () async {
                   final pickedDate = await showDatePicker(context: context, initialDate: selectedDate, firstDate: DateTime(2000), lastDate: DateTime(2100));
@@ -152,20 +204,39 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
                   if (currentUserId == null) return;
 
                   final company = ref.read(activeCompanyProvider);
-                  final amt = double.parse(amtCtrl.text);
+                  if (company == null) return; 
+
+                  // 🔥 Reverse GST Calculation Math
+                  final totalAmt = double.parse(amtCtrl.text);
+                  final p = widget.purchaser;
                   
+                  final totalGstPercentage = p.cgstRate + p.sgstRate + p.igstRate;
+                  final calculatedSubTotal = totalAmt / (1 + (totalGstPercentage / 100));
+                  
+                  final sgstAmt = calculatedSubTotal * (p.sgstRate / 100);
+                  final cgstAmt = calculatedSubTotal * (p.cgstRate / 100);
+                  final igstAmt = calculatedSubTotal * (p.igstRate / 100);
+                  final totalGstAmt = sgstAmt + cgstAmt + igstAmt;
+
                   final invoice = Invoice(
                     id: const Uuid().v4(),
                     userId: currentUserId,
-                    companyId: company!.id,
+                    companyId: company.id,
                     type: isSalesMode ? 'sales' : 'purchase',
                     purchaserId: widget.purchaser.id,
                     billNo: noteCtrl.text.isEmpty ? 'MANUAL' : noteCtrl.text,
-                    billDate: selectedDate.millisecondsSinceEpoch, // Use the selected date here
-                    truckNo: '', driverName: '', licNo: '', nos: 1, unit: 'NA', quantity: 1, 
-                    rate: amt, amount: amt, labourCharge: 0, subTotal: amt, gstAmount: 0, totalAmount: amt, 
+                    billDate: selectedDate.millisecondsSinceEpoch, 
+                    truckNo: '', driverName: '', licNo: '', 
+                    nos: 1, unit: 'NA', quantity: 1, 
+                    rate: calculatedSubTotal, // Rate = SubTotal
+                    amount: calculatedSubTotal, // Amount = SubTotal
+                    labourCharge: 0, 
+                    subTotal: calculatedSubTotal, 
+                    gstAmount: totalGstAmt, 
+                    totalAmount: totalAmt, 
                     lastUpdated: DateTime.now().millisecondsSinceEpoch,
-                  );
+                    isDeleted: 0,
+                  );  
                   
                   await ref.read(invoiceProvider.notifier).addInvoice(invoice);
                   if (mounted) Navigator.pop(context);
@@ -180,7 +251,6 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
     );
   }
 
-  // --- 3. EDITING HELPERS ---
   Future<void> _editAmount(double currentAmount, Function(double) onSave) async {
     final ctrl = TextEditingController(text: currentAmount.toStringAsFixed(0));
     await showDialog(
@@ -219,20 +289,32 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 1. Fetch raw data
     final allInvoices = ref.watch(invoiceProvider).where((i) => i.purchaserId == widget.purchaser.id).toList();
     final allPayments = ref.watch(paymentProvider).where((p) => p.purchaserId == widget.purchaser.id).toList();
 
+    // 2. Filter by selected Dates
+    final dateFilteredInvoices = allInvoices.where((i) {
+      if (_dateRange == null) return true;
+      final dt = DateTime.fromMillisecondsSinceEpoch(i.billDate);
+      return dt.isAfter(_dateRange!.start) && dt.isBefore(_dateRange!.end);
+    }).toList();
+
+    final dateFilteredPayments = allPayments.where((p) {
+      if (_dateRange == null) return true;
+      final dt = DateTime.fromMillisecondsSinceEpoch(p.date);
+      return dt.isAfter(_dateRange!.start) && dt.isBefore(_dateRange!.end);
+    }).toList();
+
     final isSalesMode = _filter == 'Sales';
     
-    // Filter data based on mode
-    final relevantInvoices = allInvoices.where((i) => i.type == (isSalesMode ? 'sales' : 'purchase')).toList();
-    final relevantPayments = allPayments.where((p) => p.type == (isSalesMode ? 'received' : 'paid')).toList();
+    // 3. Filter by Transaction Type (Sales vs Purchases)
+    final relevantInvoices = dateFilteredInvoices.where((i) => i.type == (isSalesMode ? 'sales' : 'purchase')).toList();
+    final relevantPayments = dateFilteredPayments.where((p) => p.type == (isSalesMode ? 'received' : 'paid')).toList();
 
-    // Sort Newest to Oldest
     relevantInvoices.sort((a, b) => b.billDate.compareTo(a.billDate));
     relevantPayments.sort((a, b) => b.date.compareTo(a.date));
 
-    // Calculate Totals
     final totalBilled = relevantInvoices.fold(0.0, (sum, i) => sum + i.totalAmount);
     final totalPaid = relevantPayments.fold(0.0, (sum, p) => sum + p.amount);
     final outstanding = totalBilled - totalPaid;
@@ -244,111 +326,179 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 1,
-      ),
-      body: Column(
-        children: [
-          // --- FILTER TOGGLE ---
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'Sales', label: Text('Sales (They Owe Us)')),
-                ButtonSegment(value: 'Purchases', label: Text('Purchases (We Owe Them)')),
-              ],
-              selected: {_filter},
-              onSelectionChanged: (val) => setState(() => _filter = val.first),
-              style: SegmentedButton.styleFrom(
-                selectedBackgroundColor: Colors.blue.shade50,
-                selectedForegroundColor: Colors.blueAccent,
-              ),
-            ),
-          ),
-          
-          // --- SUMMARY CARDS ---
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
-            child: Row(
-              children: [
-                Expanded(child: _statCard('Total Billed', totalBilled, Colors.blue)),
-                const SizedBox(width: 8),
-                Expanded(child: _statCard(isSalesMode ? 'Total Received' : 'Total Paid', totalPaid, isSalesMode ? Colors.green : Colors.orange)),
-                const SizedBox(width: 8),
-                Expanded(child: _statCard('Pending', outstanding, outstanding > 0 ? Colors.red : Colors.grey.shade600)),
-              ],
-            ),
-          ),
-          
-          // --- T-LEDGER COLUMN HEADERS ---
-          Container(
-            color: Colors.grey.shade200,
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    isSalesMode ? 'CREDIT (Received)' : 'CREDIT (Paid)', 
-                    textAlign: TextAlign.center, 
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: isSalesMode ? Colors.green.shade700 : Colors.orange.shade700, letterSpacing: 0.5)
-                  )
-                ),
-                Container(width: 1, height: 20, color: Colors.grey.shade400),
-                const Expanded(
-                  child: Text(
-                    'DEBIT (Bills/Invoices)', 
-                    textAlign: TextAlign.center, 
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueAccent, letterSpacing: 0.5)
-                  )
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1, thickness: 1),
-
-          // --- TWO COLUMN T-LEDGER VIEW ---
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // LEFT SIDE: PAYMENTS
-                Expanded(
-                  child: relevantPayments.isEmpty 
-                    ? const Center(child: Text('No payments.', style: TextStyle(color: Colors.grey, fontSize: 12)))
-                    : ListView.builder(
-                      padding: const EdgeInsets.only(top: 8, bottom: 100), // Added padding for FABs
-                      itemCount: relevantPayments.length,
-                      itemBuilder: (context, index) => _buildPaymentTile(relevantPayments[index], isSalesMode),
-                    ),
-                ),
-                
-                // CENTER DIVIDER
-                const VerticalDivider(width: 1, thickness: 1),
-                
-                // RIGHT SIDE: BILLS
-                Expanded(
-                  child: relevantInvoices.isEmpty
-                    ? const Center(child: Text('No bills.', style: TextStyle(color: Colors.grey, fontSize: 12)))
-                    : ListView.builder(
-                      padding: const EdgeInsets.only(top: 8, bottom: 100), // Added padding for FABs
-                      itemCount: relevantInvoices.length,
-                      itemBuilder: (context, index) => _buildInvoiceTile(relevantInvoices[index]),
-                    ),
-                ),
-              ],
-            ),
+        actions: [
+          // 🔥 NEW: Filter Toggle Button
+          IconButton(
+            icon: Icon(_showFilters ? Icons.filter_list_off : Icons.filter_list),
+            color: _showFilters ? Colors.blueAccent : Colors.black87,
+            onPressed: () {
+              setState(() {
+                _showFilters = !_showFilters;
+              });
+            },
           )
         ],
       ),
+      body: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(
+          dragDevices: {
+            PointerDeviceKind.touch,
+            PointerDeviceKind.mouse, 
+            PointerDeviceKind.trackpad,
+          },
+        ),
+        child: RefreshIndicator(
+          onRefresh: _syncData,
+          color: Colors.blueAccent,
+          backgroundColor: Colors.white,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(), 
+            children: [
+              // 🔥 NEW: Expandable Filter Section
+              if (_showFilters)
+                Container(
+                  color: Colors.blue.shade50,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.calendar_month, size: 20),
+                          label: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              _dateRange == null 
+                                ? 'Select Date Range' 
+                                : '${DateFormat('dd MMM yy').format(_dateRange!.start)}  -  ${DateFormat('dd MMM yy').format(_dateRange!.end)}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.blueAccent,
+                            side: BorderSide(color: Colors.blueAccent.shade200, width: 1.5),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: _selectDateRange,
+                        ),
+                      ),
+                      if (_dateRange != null) ...[
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, color: Colors.redAccent),
+                          style: IconButton.styleFrom(backgroundColor: Colors.red.shade50),
+                          tooltip: 'Clear Dates',
+                          onPressed: () => setState(() => _dateRange = null),
+                        )
+                      ]
+                    ],
+                  ),
+                ),
+
+              Container(
+                color: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'Sales', label: Text('Sales (They Owe)')),
+                    ButtonSegment(value: 'Purchases', label: Text('Purchases (We Owe)')),
+                  ],
+                  selected: {_filter},
+                  onSelectionChanged: (val) => setState(() => _filter = val.first),
+                  style: SegmentedButton.styleFrom(
+                    selectedBackgroundColor: Colors.blue.shade50,
+                    selectedForegroundColor: Colors.blueAccent,
+                  ),
+                ),
+              ),
+              
+              Container(
+                color: Colors.white,
+                padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+                child: Row(
+                  children: [
+                    Expanded(child: _statCard('Total Billed', totalBilled, Colors.blue)),
+                    const SizedBox(width: 8),
+                    Expanded(child: _statCard(isSalesMode ? 'Total Received' : 'Total Paid', totalPaid, isSalesMode ? Colors.green : Colors.orange)),
+                    const SizedBox(width: 8),
+                    Expanded(child: _statCard('Pending', outstanding, outstanding > 0 ? Colors.red : Colors.grey.shade600)),
+                  ],
+                ),
+              ),
+              
+              Container(
+                color: Colors.grey.shade200,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        isSalesMode ? 'CREDIT (Received)' : 'CREDIT (Paid)', 
+                        textAlign: TextAlign.center, 
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: isSalesMode ? Colors.green.shade700 : Colors.orange.shade700, letterSpacing: 0.5)
+                      )
+                    ),
+                    Container(width: 1.5, height: 20, color: Colors.grey.shade400),
+                    const Expanded(
+                      child: Text(
+                        'DEBIT (Bills/Invoices)', 
+                        textAlign: TextAlign.center, 
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueAccent, letterSpacing: 0.5)
+                      )
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, thickness: 1),
+
+              IntrinsicHeight( 
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch, 
+                  children: [
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border(
+                            right: BorderSide(color: Colors.grey.shade400, width: 1.5) 
+                          )
+                        ),
+                        child: relevantPayments.isEmpty 
+                          ? const Padding(padding: EdgeInsets.all(20), child: Center(child: Text('No payments.', style: TextStyle(color: Colors.grey, fontSize: 12))))
+                          : Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Column(
+                                children: relevantPayments.map((p) => _buildPaymentTile(p, isSalesMode)).toList(),
+                              ),
+                            ),
+                      ),
+                    ),
+                    
+                    Expanded(
+                      child: relevantInvoices.isEmpty
+                        ? const Padding(padding: EdgeInsets.all(20), child: Center(child: Text('No bills.', style: TextStyle(color: Colors.grey, fontSize: 12))))
+                        : Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Column(
+                              children: relevantInvoices.map((i) => _buildInvoiceTile(i)).toList(),
+                            ),
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 100), 
+            ],
+          ),
+        ),
+      ),
       
-      // --- DUAL FLOATING ACTION BUTTONS ---
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16.0),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // LEFT FAB (CREDIT)
             FloatingActionButton.extended(
               heroTag: 'btnLeft',
               onPressed: () => _showAddPaymentDialog(isSalesMode),
@@ -358,7 +508,6 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
               foregroundColor: Colors.white,
               elevation: 4,
             ),
-            // RIGHT FAB (DEBIT)
             FloatingActionButton.extended(
               heroTag: 'btnRight',
               onPressed: () => _showAddDebitDialog(isSalesMode),
@@ -373,8 +522,6 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
       ),
     );
   }
-
-  // --- UI HELPER WIDGETS ---
 
   Widget _statCard(String title, double amount, Color color) {
     return Container(
@@ -394,7 +541,6 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
     );
   }
 
-  // --- PAYMENT TILE (CREDIT) ---
   Widget _buildPaymentTile(Payment p, bool isSalesMode) {
     final color = isSalesMode ? Colors.green : Colors.orange;
     return InkWell(
@@ -411,7 +557,7 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
                     Navigator.pop(ctx);
                     _editAmount(p.amount, (newAmt) {
                       final updated = Payment(id: p.id, userId: p.userId, companyId: p.companyId, purchaserId: p.purchaserId, amount: newAmt, date: p.date, type: p.type, notes: p.notes);
-                      ref.read(paymentProvider.notifier).addPayment(updated); // Safely overwrites existing due to ConflictAlgorithm.replace
+                      ref.read(paymentProvider.notifier).addPayment(updated); 
                     });
                   },
                 ),
@@ -477,7 +623,6 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
     );
   }
 
-  // --- INVOICE TILE (DEBIT) ---
   Widget _buildInvoiceTile(Invoice i) {
     return InkWell(
       onLongPress: () {
@@ -494,7 +639,7 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
                     _editAmount(i.totalAmount, (newAmt) {
                       final updated = Invoice(
                         id: i.id, userId: i.userId, companyId: i.companyId, type: i.type, purchaserId: i.purchaserId, billNo: i.billNo, billDate: i.billDate, truckNo: i.truckNo, driverName: i.driverName, licNo: i.licNo, nos: i.nos, unit: i.unit, quantity: i.quantity, rate: i.rate, 
-                        amount: newAmt, labourCharge: i.labourCharge, subTotal: newAmt, gstAmount: 0, totalAmount: newAmt, // Safely aligns manual amount
+                        amount: newAmt, labourCharge: i.labourCharge, subTotal: newAmt, gstAmount: 0, totalAmount: newAmt,
                         lastUpdated: DateTime.now().millisecondsSinceEpoch, isDeleted: i.isDeleted
                       );
                       ref.read(invoiceProvider.notifier).updateInvoice(updated);
@@ -519,7 +664,7 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
                   leading: const Icon(Icons.delete, color: Colors.red),
                   title: const Text('Delete Transaction', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
                   onTap: () {
-                    ref.read(invoiceProvider.notifier).deleteInvoice(i); // Pass the whole object!
+                    ref.read(invoiceProvider.notifier).deleteInvoice(i); 
                     Navigator.pop(ctx);
                   },
                 ),

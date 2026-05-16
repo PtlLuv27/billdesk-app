@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart'; // 🔥 IMPORT ADDED FOR PC SWIPING
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart'; 
@@ -12,6 +13,7 @@ import '../../providers/purchaser_provider.dart';
 import '../edit_company_screen.dart';
 import '../../../dashboard/global_dashboard_screen.dart'; 
 import '../account_detail_screen.dart'; 
+import '../../../../core/database/sync_engine.dart';
 
 class CompanyHomeTab extends ConsumerStatefulWidget {
   final Function(int)? onNavigateTab; 
@@ -28,6 +30,17 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
   String formatAmount(double val) {
     final formatter = NumberFormat.decimalPattern('en_IN');
     return '${formatter.format(val.round())}/-';
+  }
+
+  // --- 🔥 NEW: SYNC FUNCTION ---
+  Future<void> _syncData() async {
+    // 1. Sync data with the cloud
+    await SyncEngine.syncAll();
+    
+    // 2. Tell Riverpod to refresh the UI with the newly downloaded data
+    ref.invalidate(invoiceProvider);
+    ref.invalidate(paymentProvider);
+    ref.invalidate(purchaserProvider);
   }
 
   @override
@@ -199,426 +212,442 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FC),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // --- COMPANY PROFILE CARD ---
-          Card(
-            elevation: 4,
-            shadowColor: Colors.black12,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                children: [
-                  CircleAvatar(radius: 40, backgroundColor: Colors.blue.shade50, child: const Icon(Icons.business, size: 40, color: Colors.blueAccent)),
-                  const SizedBox(height: 16),
-                  Text(company.name.toUpperCase(), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 1.2, color: Color(0xFF203A43))),
-                  const SizedBox(height: 4),
-                  Text('by: $userName', style: TextStyle(color: Colors.grey.shade600, fontSize: 14, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  Text('${company.address1}, ${company.address2}', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
-                  Text('MO: ${company.mobileNumber}', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold, fontSize: 14)),
-                  const Divider(height: 30),
-                  Row(
+      // --- 🔥 NEW: WRAPPED BODY IN SCROLL CONFIGURATION & REFRESH INDICATOR ---
+      body: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(
+          dragDevices: {
+            PointerDeviceKind.touch,
+            PointerDeviceKind.mouse, // Allows pulling down with PC mouse
+            PointerDeviceKind.trackpad,
+          },
+        ),
+        child: RefreshIndicator(
+          onRefresh: _syncData, // Calls the sync logic
+          color: Colors.blueAccent,
+          backgroundColor: Colors.white,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(), // MUST BE HERE for pull-to-refresh
+            padding: const EdgeInsets.all(16),
+            children: [
+              // --- COMPANY PROFILE CARD ---
+              Card(
+                elevation: 4,
+                shadowColor: Colors.black12,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
                     children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            showDialog(
-                              context: context,
-                              builder: (context) => AlertDialog(
-                                title: const Text('Lock Workspace?'),
-                                content: const Text('You will need your PIN to enter again.'),
-                                actions: [
-                                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-                                  ElevatedButton(
-                                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                                    onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const GlobalDashboardScreen()), (route) => false),
-                                    child: const Text('Lock & Exit'),
+                      CircleAvatar(radius: 40, backgroundColor: Colors.blue.shade50, child: const Icon(Icons.business, size: 40, color: Colors.blueAccent)),
+                      const SizedBox(height: 16),
+                      Text(company.name.toUpperCase(), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 1.2, color: Color(0xFF203A43))),
+                      const SizedBox(height: 4),
+                      Text('by: $userName', style: TextStyle(color: Colors.grey.shade600, fontSize: 14, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 8),
+                      Text('${company.address1}, ${company.address2}', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+                      Text('MO: ${company.mobileNumber}', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold, fontSize: 14)),
+                      const Divider(height: 30),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: const Text('Lock Workspace?'),
+                                    content: const Text('You will need your PIN to enter again.'),
+                                    actions: [
+                                      TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                                      ElevatedButton(
+                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                                        onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const GlobalDashboardScreen()), (route) => false),
+                                        child: const Text('Lock & Exit'),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.lock_outline, color: Colors.red, size: 18),
-                          label: const Text('Lock', style: TextStyle(color: Colors.red)),
-                          style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EditCompanyScreen(company: company))),
-                          icon: const Icon(Icons.security, size: 18),
-                          label: const Text('Settings'),
-                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF203A43), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                        ),
+                                );
+                              },
+                              icon: const Icon(Icons.lock_outline, color: Colors.red, size: 18),
+                              label: const Text('Lock', style: TextStyle(color: Colors.red)),
+                              style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EditCompanyScreen(company: company))),
+                              icon: const Icon(Icons.security, size: 18),
+                              label: const Text('Settings'),
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF203A43), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
+                ),
+              ),
+              
+              const SizedBox(height: 32),
+              
+              // --- KPI HEADER & SNAPSHOT ---
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.blue.shade100)
+                  ),
+                  child: Text(
+                    businessYearLabel, 
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade800)
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Business Snapshot', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade200)),
+                    child: DropdownButton<String>(
+                      value: _analyticsFilter,
+                      underline: const SizedBox(),
+                      icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.blueAccent),
+                      items: ['Both', 'Sales', 'Purchase'].map((e) => DropdownMenuItem(value: e, child: Text(e, style: const TextStyle(fontWeight: FontWeight.bold)))).toList(),
+                      onChanged: (val) { if (val != null) setState(() => _analyticsFilter = val); },
+                    ),
+                  )
                 ],
               ),
-            ),
-          ),
-          
-          const SizedBox(height: 32),
-          
-          // --- KPI HEADER & SNAPSHOT ---
-          Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.blue.shade100)
-              ),
-              child: Text(
-                businessYearLabel, 
-                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade800)
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Business Snapshot', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade200)),
-                child: DropdownButton<String>(
-                  value: _analyticsFilter,
-                  underline: const SizedBox(),
-                  icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.blueAccent),
-                  items: ['Both', 'Sales', 'Purchase'].map((e) => DropdownMenuItem(value: e, child: Text(e, style: const TextStyle(fontWeight: FontWeight.bold)))).toList(),
-                  onChanged: (val) { if (val != null) setState(() => _analyticsFilter = val); },
-                ),
-              )
-            ],
-          ),
-          const SizedBox(height: 12),
-          
-          Row(
-            children: [
-              Expanded(
-                child: _buildMetricCard(
-                  "Today's ${_analyticsFilter == 'Both' ? 'Net' : _analyticsFilter}", 
-                  todayNet, 
-                  todaySales, 
-                  todayPurchases,
-                  DateFormat('dd MMM').format(now), 
-                  [Colors.orange.shade400, Colors.deepOrange.shade400]
-                )
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildMetricCard(
-                  "This Year's ${_analyticsFilter == 'Both' ? 'Net' : _analyticsFilter}", 
-                  yearNet, 
-                  yearSales,
-                  yearPurchases,
-                  'Apr - Mar', 
-                  [Colors.teal.shade400, Colors.green.shade600]
-                )
-              ),
-            ],
-          ),
-          
-          const SizedBox(height: 32),
-
-          // --- BAR CHART: CASH FLOW TREND ---
-          const Text("Current Year's Cash Flow", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
-          const SizedBox(height: 12),
-          HoverableDataCard(
-            gradientColors: const [Colors.white, Colors.white],
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
+              const SizedBox(height: 12),
+              
+              Row(
                 children: [
-                  SizedBox(
-                    height: 220,
-                    child: BarChart(
-                      BarChartData(
-                        alignment: BarChartAlignment.spaceAround,
-                        maxY: maxChartValue * 1.2, 
-                        barTouchData: BarTouchData(
-                          enabled: true,
-                          touchTooltipData: BarTouchTooltipData(
-                            getTooltipColor: (group) => Colors.black87,
-                            getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                              return BarTooltipItem(
-                                '₹${formatAmount(rod.toY)}',
-                                const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                  Expanded(
+                    child: _buildMetricCard(
+                      "Today's ${_analyticsFilter == 'Both' ? 'Net' : _analyticsFilter}", 
+                      todayNet, 
+                      todaySales, 
+                      todayPurchases,
+                      DateFormat('dd MMM').format(now), 
+                      [Colors.orange.shade400, Colors.deepOrange.shade400]
+                    )
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildMetricCard(
+                      "This Year's ${_analyticsFilter == 'Both' ? 'Net' : _analyticsFilter}", 
+                      yearNet, 
+                      yearSales,
+                      yearPurchases,
+                      'Apr - Mar', 
+                      [Colors.teal.shade400, Colors.green.shade600]
+                    )
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 32),
+
+              // --- BAR CHART: CASH FLOW TREND ---
+              const Text("Current Year's Cash Flow", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
+              const SizedBox(height: 12),
+              HoverableDataCard(
+                gradientColors: const [Colors.white, Colors.white],
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        height: 220,
+                        child: BarChart(
+                          BarChartData(
+                            alignment: BarChartAlignment.spaceAround,
+                            maxY: maxChartValue * 1.2, 
+                            barTouchData: BarTouchData(
+                              enabled: true,
+                              touchTooltipData: BarTouchTooltipData(
+                                getTooltipColor: (group) => Colors.black87,
+                                getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                                  return BarTooltipItem(
+                                    '₹${formatAmount(rod.toY)}',
+                                    const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                                  );
+                                },
+                              ),
+                            ), 
+                            titlesData: FlTitlesData(
+                              show: true,
+                              bottomTitles: AxisTitles(
+                                sideTitles: SideTitles(
+                                  showTitles: true,
+                                  getTitlesWidget: (value, meta) => Padding(
+                                    padding: const EdgeInsets.only(top: 10), 
+                                    child: Text(monthLabels[value.toInt()], style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey.shade600))
+                                  ),
+                                ),
+                              ),
+                              leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), 
+                              topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                              rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                            ),
+                            gridData: const FlGridData(show: false),
+                            borderData: FlBorderData(show: false),
+                            barGroups: List.generate(12, (i) {
+                              return BarChartGroupData(
+                                x: i,
+                                barRods: [
+                                  BarChartRodData(toY: monthlySales[i], gradient: LinearGradient(colors: [Colors.blueAccent.shade100, Colors.blueAccent.shade700], begin: Alignment.bottomCenter, end: Alignment.topCenter), width: 8, borderRadius: BorderRadius.circular(4)),
+                                  BarChartRodData(toY: monthlyPurchases[i], gradient: LinearGradient(colors: [Colors.pinkAccent.shade100, Colors.pinkAccent.shade700], begin: Alignment.bottomCenter, end: Alignment.topCenter), width: 8, borderRadius: BorderRadius.circular(4)),
+                                ],
+                              );
+                            }),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(width: 12, height: 12, decoration: BoxDecoration(color: Colors.blueAccent, borderRadius: BorderRadius.circular(3))), const SizedBox(width: 6), const Text('Sales', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                          const SizedBox(width: 24),
+                          Container(width: 12, height: 12, decoration: BoxDecoration(color: Colors.pinkAccent, borderRadius: BorderRadius.circular(3))), const SizedBox(width: 6), const Text('Purchases', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 32),
+
+              // --- PIE CHART: TOP PERFORMANCE ---
+              if (topPerformance.isNotEmpty) ...[
+                const Text('Top Performance', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
+                const SizedBox(height: 12),
+                HoverableDataCard(
+                  gradientColors: const [Colors.white, Colors.white],
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          height: 140,
+                          width: 140,
+                          child: PieChart(
+                            PieChartData(
+                              sectionsSpace: 4,
+                              centerSpaceRadius: 25,
+                              sections: List.generate(topPerformance.length, (i) {
+                                return PieChartSectionData(
+                                  color: perfColors[i],
+                                  value: topPerformance[i].value,
+                                  title: '', 
+                                  radius: 45,
+                                  badgeWidget: Container(
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)]),
+                                    child: Text('${i+1}', style: TextStyle(fontWeight: FontWeight.bold, color: perfColors[i], fontSize: 10)),
+                                  ),
+                                  badgePositionPercentageOffset: 1.1,
+                                );
+                              }),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 24),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: List.generate(topPerformance.length, (i) {
+                              final purchaserName = allPurchasers.firstWhere((p) => p.id == topPerformance[i].key, orElse: () => Purchaser(id: '', userId: '', name: 'Unknown', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0)).name;
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 12.0),
+                                child: Row(
+                                  children: [
+                                    Container(width: 12, height: 12, decoration: BoxDecoration(color: perfColors[i], shape: BoxShape.circle)),
+                                    const SizedBox(width: 8),
+                                    Expanded(child: Text(purchaserName, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade800), overflow: TextOverflow.ellipsis)),
+                                    Text('₹${formatAmount(topPerformance[i].value)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ),
+                        )
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 32),
+              ],
+
+              // --- PIE CHART: TOP DEBTORS ---
+              if (top5Debtors.isNotEmpty) ...[
+                const Text('Top Outstanding Receivables', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
+                const SizedBox(height: 12),
+                HoverableDataCard(
+                  gradientColors: const [Colors.white, Colors.white],
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          height: 140,
+                          width: 140,
+                          child: PieChart(
+                            PieChartData(
+                              sectionsSpace: 4,
+                              centerSpaceRadius: 25,
+                              sections: List.generate(top5Debtors.length, (i) {
+                                return PieChartSectionData(
+                                  color: debtorColors[i],
+                                  value: top5Debtors[i].value,
+                                  title: '', 
+                                  radius: 45,
+                                  badgeWidget: Container(
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)]),
+                                    child: Text('${i+1}', style: TextStyle(fontWeight: FontWeight.bold, color: debtorColors[i], fontSize: 10)),
+                                  ),
+                                  badgePositionPercentageOffset: 1.1,
+                                );
+                              }),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 24),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: List.generate(top5Debtors.length, (i) {
+                              final purchaserName = allPurchasers.firstWhere((p) => p.id == top5Debtors[i].key, orElse: () => Purchaser(id: '', userId: '', name: 'Unknown', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0)).name;
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 12.0),
+                                child: Row(
+                                  children: [
+                                    Container(width: 12, height: 12, decoration: BoxDecoration(color: debtorColors[i], shape: BoxShape.circle)),
+                                    const SizedBox(width: 8),
+                                    Expanded(child: Text(purchaserName, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade800), overflow: TextOverflow.ellipsis)),
+                                    Text('₹${formatAmount(top5Debtors[i].value)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ),
+                        )
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 32),
+              ],
+
+              // --- ALL PARTIES ---
+              const Text('Parties (Balances As Of Current Year)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
+              const SizedBox(height: 12),
+              HoverableDataCard(
+                gradientColors: [Colors.purple.shade700, Colors.deepPurple.shade400],
+                child: allPartiesList.isEmpty 
+                  ? const Padding(padding: EdgeInsets.all(24.0), child: Center(child: Text('No parties added yet.', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))))
+                  : Column(
+                      children: allPartiesList.map((purchaser) {
+                        final bal = balances[purchaser.id] ?? 0.0;
+                        final isClear = bal.abs() < 0.01;
+                        final isOwedToUs = bal > 0;
+                        
+                        return Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (context) => AccountDetailScreen(purchaser: purchaser)),
                               );
                             },
-                          ),
-                        ), 
-                        titlesData: FlTitlesData(
-                          show: true,
-                          bottomTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                              showTitles: true,
-                              getTitlesWidget: (value, meta) => Padding(
-                                padding: const EdgeInsets.only(top: 10), 
-                                child: Text(monthLabels[value.toInt()], style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey.shade600))
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                              leading: CircleAvatar(
+                                backgroundColor: Colors.white24, 
+                                child: Icon(
+                                  isClear ? Icons.check_circle : (isOwedToUs ? Icons.call_received : Icons.call_made), 
+                                  color: isClear ? Colors.greenAccent : Colors.white, 
+                                  size: 18
+                                )
+                              ),
+                              title: Text(purchaser.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              subtitle: Text(
+                                isClear ? 'No pending balance' : (isOwedToUs ? 'They owe us' : 'We owe them'), 
+                                style: const TextStyle(color: Colors.white70, fontSize: 12)
+                              ),
+                              trailing: Text(
+                                isClear ? 'Clear' : '₹${formatAmount(bal.abs())}', 
+                                style: TextStyle(
+                                  color: isClear ? Colors.greenAccent : Colors.white, 
+                                  fontWeight: FontWeight.w900, 
+                                  fontSize: 16
+                                )
                               ),
                             ),
                           ),
-                          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), 
-                          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                        ),
-                        gridData: const FlGridData(show: false),
-                        borderData: FlBorderData(show: false),
-                        barGroups: List.generate(12, (i) {
-                          return BarChartGroupData(
-                            x: i,
-                            barRods: [
-                              BarChartRodData(toY: monthlySales[i], gradient: LinearGradient(colors: [Colors.blueAccent.shade100, Colors.blueAccent.shade700], begin: Alignment.bottomCenter, end: Alignment.topCenter), width: 8, borderRadius: BorderRadius.circular(4)),
-                              BarChartRodData(toY: monthlyPurchases[i], gradient: LinearGradient(colors: [Colors.pinkAccent.shade100, Colors.pinkAccent.shade700], begin: Alignment.bottomCenter, end: Alignment.topCenter), width: 8, borderRadius: BorderRadius.circular(4)),
-                            ],
-                          );
-                        }),
-                      ),
+                        );
+                      }).toList(),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(width: 12, height: 12, decoration: BoxDecoration(color: Colors.blueAccent, borderRadius: BorderRadius.circular(3))), const SizedBox(width: 6), const Text('Sales', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                      const SizedBox(width: 24),
-                      Container(width: 12, height: 12, decoration: BoxDecoration(color: Colors.pinkAccent, borderRadius: BorderRadius.circular(3))), const SizedBox(width: 6), const Text('Purchases', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                    ],
-                  ),
+              ),
+              
+              const SizedBox(height: 32),
+
+              // --- LATEST ACTIONS ---
+              const Text('Latest Actions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
+              const SizedBox(height: 12),
+              HoverableDataCard(
+                gradientColors: [Colors.blue.shade800, Colors.lightBlue.shade500],
+                child: topRecentActions.isEmpty
+                  ? const Padding(padding: EdgeInsets.all(24.0), child: Center(child: Text('No recent activity.', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))))
+                  : Column(
+                      children: topRecentActions.map((action) {
+                        final purchaser = allPurchasers.firstWhere((p) => p.id == action['purchaserId'], orElse: () => Purchaser(id: '', userId: '', name: 'Unknown', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0));
+                        return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                          leading: CircleAvatar(backgroundColor: Colors.white, child: Icon(action['icon'], color: action['color'], size: 18)),
+                          title: Text(purchaser.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                          subtitle: Text('${action['type']} • ${DateFormat('dd MMM, hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(action['date']))}', style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                          trailing: Text('₹${formatAmount(action['amount'])}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14)),
+                        );
+                      }).toList(),
+                    ),
+              ),
+              
+              const SizedBox(height: 32),
+
+              // --- SHORTCUT LINKS ---
+              const Text('Quick Access', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
+              const SizedBox(height: 12),
+              GridView.count(
+                crossAxisCount: 2,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                childAspectRatio: 3.8, 
+                children: [
+                  _buildShortcutBtn(Icons.people, 'Parties', Colors.teal, () => widget.onNavigateTab?.call(1)), 
+                  _buildShortcutBtn(Icons.point_of_sale, 'Sales', Colors.blueAccent, () => widget.onNavigateTab?.call(2)), 
+                  _buildShortcutBtn(Icons.shopping_cart, 'Purchase', Colors.pinkAccent, () => widget.onNavigateTab?.call(3)),
+                  _buildShortcutBtn(Icons.book, 'Ledger', Colors.deepPurpleAccent, () => widget.onNavigateTab?.call(4)),
+                  _buildShortcutBtn(Icons.account_balance_wallet, 'Account', Colors.orangeAccent, () => widget.onNavigateTab?.call(5)),
                 ],
               ),
-            ),
-          ),
-
-          const SizedBox(height: 32),
-
-          // --- PIE CHART: TOP PERFORMANCE ---
-          if (topPerformance.isNotEmpty) ...[
-            const Text('Top Performance', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
-            const SizedBox(height: 12),
-            HoverableDataCard(
-              gradientColors: const [Colors.white, Colors.white],
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Row(
-                  children: [
-                    SizedBox(
-                      height: 140,
-                      width: 140,
-                      child: PieChart(
-                        PieChartData(
-                          sectionsSpace: 4,
-                          centerSpaceRadius: 25,
-                          sections: List.generate(topPerformance.length, (i) {
-                            return PieChartSectionData(
-                              color: perfColors[i],
-                              value: topPerformance[i].value,
-                              title: '', 
-                              radius: 45,
-                              badgeWidget: Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)]),
-                                child: Text('${i+1}', style: TextStyle(fontWeight: FontWeight.bold, color: perfColors[i], fontSize: 10)),
-                              ),
-                              badgePositionPercentageOffset: 1.1,
-                            );
-                          }),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 24),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: List.generate(topPerformance.length, (i) {
-                          final purchaserName = allPurchasers.firstWhere((p) => p.id == topPerformance[i].key, orElse: () => Purchaser(id: '', userId: '', name: 'Unknown', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0)).name;
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12.0),
-                            child: Row(
-                              children: [
-                                Container(width: 12, height: 12, decoration: BoxDecoration(color: perfColors[i], shape: BoxShape.circle)),
-                                const SizedBox(width: 8),
-                                Expanded(child: Text(purchaserName, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade800), overflow: TextOverflow.ellipsis)),
-                                Text('₹${formatAmount(topPerformance[i].value)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
-                              ],
-                            ),
-                          );
-                        }),
-                      ),
-                    )
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 32),
-          ],
-
-          // --- PIE CHART: TOP DEBTORS ---
-          if (top5Debtors.isNotEmpty) ...[
-            const Text('Top Outstanding Receivables', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
-            const SizedBox(height: 12),
-            HoverableDataCard(
-              gradientColors: const [Colors.white, Colors.white],
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Row(
-                  children: [
-                    SizedBox(
-                      height: 140,
-                      width: 140,
-                      child: PieChart(
-                        PieChartData(
-                          sectionsSpace: 4,
-                          centerSpaceRadius: 25,
-                          sections: List.generate(top5Debtors.length, (i) {
-                            return PieChartSectionData(
-                              color: debtorColors[i],
-                              value: top5Debtors[i].value,
-                              title: '', 
-                              radius: 45,
-                              badgeWidget: Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)]),
-                                child: Text('${i+1}', style: TextStyle(fontWeight: FontWeight.bold, color: debtorColors[i], fontSize: 10)),
-                              ),
-                              badgePositionPercentageOffset: 1.1,
-                            );
-                          }),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 24),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: List.generate(top5Debtors.length, (i) {
-                          final purchaserName = allPurchasers.firstWhere((p) => p.id == top5Debtors[i].key, orElse: () => Purchaser(id: '', userId: '', name: 'Unknown', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0)).name;
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12.0),
-                            child: Row(
-                              children: [
-                                Container(width: 12, height: 12, decoration: BoxDecoration(color: debtorColors[i], shape: BoxShape.circle)),
-                                const SizedBox(width: 8),
-                                Expanded(child: Text(purchaserName, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade800), overflow: TextOverflow.ellipsis)),
-                                Text('₹${formatAmount(top5Debtors[i].value)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
-                              ],
-                            ),
-                          );
-                        }),
-                      ),
-                    )
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 32),
-          ],
-
-          // --- ALL PARTIES ---
-          const Text('Parties (Balances As Of Current Year)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
-          const SizedBox(height: 12),
-          HoverableDataCard(
-            gradientColors: [Colors.purple.shade700, Colors.deepPurple.shade400],
-            child: allPartiesList.isEmpty 
-              ? const Padding(padding: EdgeInsets.all(24.0), child: Center(child: Text('No parties added yet.', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))))
-              : Column(
-                  children: allPartiesList.map((purchaser) {
-                    final bal = balances[purchaser.id] ?? 0.0;
-                    final isClear = bal.abs() < 0.01;
-                    final isOwedToUs = bal > 0;
-                    
-                    return Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => AccountDetailScreen(purchaser: purchaser)),
-                          );
-                        },
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                          leading: CircleAvatar(
-                            backgroundColor: Colors.white24, 
-                            child: Icon(
-                              isClear ? Icons.check_circle : (isOwedToUs ? Icons.call_received : Icons.call_made), 
-                              color: isClear ? Colors.greenAccent : Colors.white, 
-                              size: 18
-                            )
-                          ),
-                          title: Text(purchaser.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                          subtitle: Text(
-                            isClear ? 'No pending balance' : (isOwedToUs ? 'They owe us' : 'We owe them'), 
-                            style: const TextStyle(color: Colors.white70, fontSize: 12)
-                          ),
-                          trailing: Text(
-                            isClear ? 'Clear' : '₹${formatAmount(bal.abs())}', 
-                            style: TextStyle(
-                              color: isClear ? Colors.greenAccent : Colors.white, 
-                              fontWeight: FontWeight.w900, 
-                              fontSize: 16
-                            )
-                          ),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-          ),
-          
-          const SizedBox(height: 32),
-
-          // --- LATEST ACTIONS ---
-          const Text('Latest Actions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
-          const SizedBox(height: 12),
-          HoverableDataCard(
-            gradientColors: [Colors.blue.shade800, Colors.lightBlue.shade500],
-            child: topRecentActions.isEmpty
-              ? const Padding(padding: EdgeInsets.all(24.0), child: Center(child: Text('No recent activity.', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))))
-              : Column(
-                  children: topRecentActions.map((action) {
-                    final purchaser = allPurchasers.firstWhere((p) => p.id == action['purchaserId'], orElse: () => Purchaser(id: '', userId: '', name: 'Unknown', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0));
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                      leading: CircleAvatar(backgroundColor: Colors.white, child: Icon(action['icon'], color: action['color'], size: 18)),
-                      title: Text(purchaser.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                      subtitle: Text('${action['type']} • ${DateFormat('dd MMM, hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(action['date']))}', style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                      trailing: Text('₹${formatAmount(action['amount'])}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14)),
-                    );
-                  }).toList(),
-                ),
-          ),
-          
-          const SizedBox(height: 32),
-
-          // --- SHORTCUT LINKS ---
-          const Text('Quick Access', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
-          const SizedBox(height: 12),
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-            childAspectRatio: 3.8, 
-            children: [
-              _buildShortcutBtn(Icons.people, 'Parties', Colors.teal, () => widget.onNavigateTab?.call(1)), 
-              _buildShortcutBtn(Icons.point_of_sale, 'Sales', Colors.blueAccent, () => widget.onNavigateTab?.call(2)), 
-              _buildShortcutBtn(Icons.shopping_cart, 'Purchase', Colors.pinkAccent, () => widget.onNavigateTab?.call(3)),
-              _buildShortcutBtn(Icons.book, 'Ledger', Colors.deepPurpleAccent, () => widget.onNavigateTab?.call(4)),
-              _buildShortcutBtn(Icons.account_balance_wallet, 'Account', Colors.orangeAccent, () => widget.onNavigateTab?.call(5)),
+              const SizedBox(height: 80),
             ],
           ),
-          const SizedBox(height: 80),
-        ],
+        ),
       ),
     );
   }
