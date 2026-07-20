@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../models/invoice_model.dart';
-// import '../../../models/company_model.dart';
 import '../../../models/purchaser_model.dart';
 import '../providers/invoice_provider.dart';
 import '../providers/company_provider.dart';
@@ -41,17 +40,21 @@ class _GstDetailScreenState extends ConsumerState<GstDetailScreen> {
   }
 
   double _getInvoiceSpecificGst(Invoice invoice, Purchaser purchaser) {
-    double sgstAmt = (invoice.subTotal * purchaser.sgstRate / 100).roundToDouble();
-    double cgstAmt = (invoice.subTotal * purchaser.cgstRate / 100).roundToDouble();
-    double igstAmt = (invoice.subTotal * purchaser.igstRate / 100).roundToDouble();
+    final pSnap = invoice.purchaserSnapshot ?? {};
+    final double sgstRate = (pSnap['sgstRate'] ?? purchaser.sgstRate).toDouble();
+    final double cgstRate = (pSnap['cgstRate'] ?? purchaser.cgstRate).toDouble();
+    final double igstRate = (pSnap['igstRate'] ?? purchaser.igstRate).toDouble();
 
-    double amt = 0.0;
-    if (widget.gstType == 'SGST') amt = sgstAmt;
-    else if (widget.gstType == 'CGST') amt = cgstAmt;
-    else if (widget.gstType == 'IGST') amt = igstAmt;
-    else amt = sgstAmt + cgstAmt + igstAmt; 
+    // 🔥 EXACT MATH: Removed .roundToDouble()
+    double sgstAmt = (invoice.subTotal * sgstRate / 100);
+    double cgstAmt = (invoice.subTotal * cgstRate / 100);
+    double igstAmt = (invoice.subTotal * igstRate / 100);
 
-    return invoice.type == 'sales' ? amt : -amt;
+    if (widget.gstType == 'SGST') return invoice.type == 'sales' ? sgstAmt : -sgstAmt;
+    if (widget.gstType == 'CGST') return invoice.type == 'sales' ? cgstAmt : -cgstAmt;
+    if (widget.gstType == 'IGST') return invoice.type == 'sales' ? igstAmt : -igstAmt;
+    
+    return 0.0;
   }
 
   Widget _buildHeaderCard(double balance, String? purchaserName) {
@@ -60,7 +63,6 @@ class _GstDetailScreenState extends ConsumerState<GstDetailScreen> {
     final Color bgColor = isPositive ? const Color(0xFFE8F5E9) : Colors.red.shade50;
     final Color borderColor = isPositive ? const Color(0xFFA5D6A7) : Colors.red.shade200;
 
-    String titlePrefix = widget.gstType == 'TOTAL' ? 'TOTAL NET GST' : 'NET ${widget.gstType}';
     String suffix = purchaserName == null ? '(ALL PARTIES)' : '(${purchaserName.toUpperCase()})';
 
     return Container(
@@ -76,7 +78,7 @@ class _GstDetailScreenState extends ConsumerState<GstDetailScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            '$titlePrefix $suffix',
+            'NET ${widget.gstType} $suffix',
             style: TextStyle(color: Colors.blueGrey.shade700, fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 1.0),
             textAlign: TextAlign.center,
           ),
@@ -105,13 +107,11 @@ class _GstDetailScreenState extends ConsumerState<GstDetailScreen> {
     }
 
     var filteredInvoices = allInvoices.where((invoice) {
-      // 🔥 REMOVED the line that was hiding 'MANUAL' entries!
-
       if (widget.dateRange != null) {
-        final billDate = DateTime.fromMillisecondsSinceEpoch(invoice.billDate);
-        final start = DateTime(widget.dateRange!.start.year, widget.dateRange!.start.month, widget.dateRange!.start.day);
-        final end = DateTime(widget.dateRange!.end.year, widget.dateRange!.end.month, widget.dateRange!.end.day, 23, 59, 59);
-        if (billDate.isBefore(start) || billDate.isAfter(end)) return false;
+        if (invoice.billDate < widget.dateRange!.start.millisecondsSinceEpoch || 
+            invoice.billDate > widget.dateRange!.end.millisecondsSinceEpoch) {
+          return false;
+        }
       }
 
       if (_typeFilter == 'Sales Only' && invoice.type != 'sales') return false;
@@ -143,7 +143,7 @@ class _GstDetailScreenState extends ConsumerState<GstDetailScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Text('${widget.gstType == 'TOTAL' ? 'Total Net' : widget.gstType} Details'),
+        title: Text('${widget.gstType} Details'),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         elevation: 0,
@@ -165,7 +165,7 @@ class _GstDetailScreenState extends ConsumerState<GstDetailScreen> {
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                     ),
-                    value: _typeFilter,
+                    initialValue: _typeFilter,
                     isExpanded: true,
                     items: ['Both', 'Sales Only', 'Purchase Only'].map((e) => DropdownMenuItem(value: e, child: Text(e, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))).toList(),
                     onChanged: (val) => setState(() => _typeFilter = val!),
@@ -181,7 +181,7 @@ class _GstDetailScreenState extends ConsumerState<GstDetailScreen> {
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                     ),
-                    value: _selectedPurchaserId,
+                    initialValue: _selectedPurchaserId,
                     isExpanded: true,
                     items: [
                       const DropdownMenuItem(value: null, child: Text('All Parties', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
@@ -219,7 +219,6 @@ class _GstDetailScreenState extends ConsumerState<GstDetailScreen> {
                     final invoice = filteredInvoices[index];
                     final isSale = invoice.type == 'sales';
                     
-                    // 🔥 UI Fix: Detect manual entries
                     final bool isManual = invoice.billNo.trim().toUpperCase() == 'MANUAL' || invoice.billNo.trim().isEmpty;
                     final String displayBillName = isManual ? 'Manual Entry' : 'Bill #${invoice.billNo}';
                     

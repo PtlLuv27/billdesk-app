@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart'; // 🔥 ADDED FOR PC SWIPING
+import 'package:flutter/gestures.dart'; 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../../models/purchaser_model.dart';
 import '../providers/invoice_provider.dart';
 import '../providers/payment_provider.dart';
-import '../providers/purchaser_provider.dart'; // 🔥 NEEDED FOR INVALIDATION
-import '../../../core/database/sync_engine.dart'; // 🔥 ADDED FOR CLOUD SYNC
+import '../providers/purchaser_provider.dart'; 
+import '../../../core/database/sync_engine.dart'; 
+import 'edit_purchaser_screen.dart';
 
 class PartyDetailsScreen extends ConsumerStatefulWidget {
   final Purchaser party;
@@ -25,7 +26,6 @@ class _PartyDetailsScreenState extends ConsumerState<PartyDetailsScreen> {
     return '₹${formatter.format(val.round())}/-';
   }
 
-  // --- 🔥 NEW: SYNC FUNCTION ---
   Future<void> _syncData() async {
     await SyncEngine.syncAll();
     ref.invalidate(invoiceProvider);
@@ -35,9 +35,16 @@ class _PartyDetailsScreenState extends ConsumerState<PartyDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 🔥 REACTIVE LOOKUP: If you edit the party, this screen will instantly update its title/address!
+    final allPurchasers = ref.watch(purchaserProvider);
+    final currentParty = allPurchasers.firstWhere(
+      (p) => p.id == widget.party.id, 
+      orElse: () => widget.party
+    );
+
     // 1. Fetch all invoices and payments for this specific party
-    final allInvoices = ref.watch(invoiceProvider).where((i) => i.purchaserId == widget.party.id).toList();
-    final allPayments = ref.watch(paymentProvider).where((p) => p.purchaserId == widget.party.id).toList();
+    final allInvoices = ref.watch(invoiceProvider).where((i) => i.purchaserId == currentParty.id).toList();
+    final allPayments = ref.watch(paymentProvider).where((p) => p.purchaserId == currentParty.id).toList();
 
     // 2. Calculate Net Balance
     double totalSales = 0.0;
@@ -54,7 +61,6 @@ class _PartyDetailsScreenState extends ConsumerState<PartyDetailsScreen> {
       if (pay.type == 'paid') totalPaid += pay.amount;
     }
 
-    // Net Balance = (What they bought from us + What we paid them) - (What we bought from them + What they paid us)
     double netBalance = (totalSales + totalPaid) - (totalPurchases + totalReceived);
 
     // 3. Build Unified Timeline
@@ -65,7 +71,7 @@ class _PartyDetailsScreenState extends ConsumerState<PartyDetailsScreen> {
         'isInvoice': true,
         'date': inv.billDate,
         'amount': inv.totalAmount,
-        'type': inv.type, // 'sales' or 'purchase'
+        'type': inv.type, 
         'title': inv.billNo.trim().toUpperCase() == 'MANUAL' ? 'Manual Debit' : 'Bill #${inv.billNo}',
       });
     }
@@ -75,33 +81,30 @@ class _PartyDetailsScreenState extends ConsumerState<PartyDetailsScreen> {
         'isInvoice': false,
         'date': pay.date,
         'amount': pay.amount,
-        'type': pay.type, // 'received' or 'paid'
+        'type': pay.type, 
         'title': pay.notes.isNotEmpty ? 'Payment: ${pay.notes}' : 'Payment',
       });
     }
 
-    // Sort newest first
     timeline.sort((a, b) => b['date'].compareTo(a['date']));
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FC),
-      // --- 🔥 WRAPPED BODY IN SCROLL CONFIGURATION & REFRESH INDICATOR ---
       body: ScrollConfiguration(
         behavior: ScrollConfiguration.of(context).copyWith(
           dragDevices: {
             PointerDeviceKind.touch,
-            PointerDeviceKind.mouse, // PC swiping enabled
+            PointerDeviceKind.mouse, 
             PointerDeviceKind.trackpad,
           },
         ),
         child: RefreshIndicator(
           onRefresh: _syncData,
-          color: widget.gradient.first, // Uses the dynamic party color for the spinner
+          color: widget.gradient.first, 
           backgroundColor: Colors.white,
           child: CustomScrollView(
-            physics: const AlwaysScrollableScrollPhysics(), // MUST BE HERE for pull-to-refresh
+            physics: const AlwaysScrollableScrollPhysics(), 
             slivers: [
-              // --- BEAUTIFUL GRADIENT APP BAR ---
               SliverAppBar(
                 expandedHeight: 220.0,
                 floating: false,
@@ -119,13 +122,13 @@ class _PartyDetailsScreenState extends ConsumerState<PartyDetailsScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const SizedBox(height: 10),
-                            Text(widget.party.name, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900)),
+                            Text(currentParty.name, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900)),
                             const SizedBox(height: 4),
-                            Text(widget.party.gstin.isEmpty ? 'GST: N/A' : 'GST: ${widget.party.gstin}', style: const TextStyle(color: Colors.white70, fontSize: 14)),
-                            Text('${widget.party.address1}, ${widget.party.address2}', style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                            Text(currentParty.gstin.isEmpty ? 'GST: N/A' : 'GST: ${currentParty.gstin}', style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                            Text('${currentParty.address1}, ${currentParty.address2}', style: const TextStyle(color: Colors.white70, fontSize: 14)),
                             const Spacer(),
                             Text(
-                              'Added on: ${DateFormat('dd MMM yyyy').format(DateTime.fromMillisecondsSinceEpoch(widget.party.lastUpdated))}',
+                              'Added on: ${DateFormat('dd MMM yyyy').format(DateTime.fromMillisecondsSinceEpoch(currentParty.lastUpdated))}',
                               style: const TextStyle(color: Colors.white54, fontSize: 12),
                             ),
                             const SizedBox(height: 16),
@@ -143,7 +146,6 @@ class _PartyDetailsScreenState extends ConsumerState<PartyDetailsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // --- BALANCE CARD ---
                       Container(
                         padding: const EdgeInsets.all(24),
                         decoration: BoxDecoration(
@@ -184,7 +186,6 @@ class _PartyDetailsScreenState extends ConsumerState<PartyDetailsScreen> {
                       const Text('Complete History', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Color(0xFF203A43))),
                       const SizedBox(height: 16),
 
-                      // --- TIMELINE LIST ---
                       if (timeline.isEmpty)
                         const Center(
                           child: Padding(
@@ -198,7 +199,6 @@ class _PartyDetailsScreenState extends ConsumerState<PartyDetailsScreen> {
                           Color color;
                           String subtitlePrefix;
 
-                          // Configure styling based on transaction type
                           if (item['type'] == 'sales') {
                             icon = Icons.receipt_long;
                             color = Colors.blueAccent;
@@ -211,7 +211,7 @@ class _PartyDetailsScreenState extends ConsumerState<PartyDetailsScreen> {
                             icon = Icons.payments;
                             color = Colors.green;
                             subtitlePrefix = 'Payment In';
-                          } else { // 'paid'
+                          } else { 
                             icon = Icons.payments_outlined;
                             color = Colors.orange;
                             subtitlePrefix = 'Payment Out';
@@ -240,7 +240,7 @@ class _PartyDetailsScreenState extends ConsumerState<PartyDetailsScreen> {
                           );
                         }),
                         
-                        const SizedBox(height: 40),
+                        const SizedBox(height: 80), // Padding for the floating action button
                     ],
                   ),
                 ),
@@ -248,6 +248,22 @@ class _PartyDetailsScreenState extends ConsumerState<PartyDetailsScreen> {
             ],
           ),
         ),
+      ),
+      
+      // --- 🔥 NEW: FLOATING EDIT BUTTON ---
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => EditPurchaserScreen(purchaser: currentParty),
+            ),
+          );
+        },
+        backgroundColor: widget.gradient.first,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.edit),
+        label: const Text('Edit Party', style: TextStyle(fontWeight: FontWeight.bold)),
       ),
     );
   }

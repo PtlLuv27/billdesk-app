@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart'; 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart'; 
+import '../../../../models/purchaser_model.dart'; 
 import '../../providers/purchaser_provider.dart';
 import '../../providers/invoice_provider.dart';
 import '../../providers/payment_provider.dart';
@@ -20,19 +21,7 @@ class _AccountTabState extends ConsumerState<AccountTab> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   
-  bool _showFilters = false; 
-  DateTimeRange? _dateRange;
-
-  @override
-  void initState() {
-    super.initState();
-    final now = DateTime.now();
-    int startYear = now.month < 4 ? now.year - 1 : now.year;
-    _dateRange = DateTimeRange(
-      start: DateTime(startYear, 4, 1),
-      end: DateTime(startYear + 1, 3, 31, 23, 59, 59),
-    );
-  }
+  bool _hideZeroBalance = true; 
 
   String formatIndianCurrency(double val) {
     final formatter = NumberFormat.decimalPattern('en_IN');
@@ -52,36 +41,6 @@ class _AccountTabState extends ConsumerState<AccountTab> {
     ref.invalidate(purchaserProvider);
   }
 
-  Future<void> _selectDateRange() async {
-    final picked = await showDateRangePicker(
-      context: context,
-      initialDateRange: _dateRange,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Colors.blueAccent,
-              onPrimary: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-    
-    if (picked != null) {
-      setState(() {
-        _dateRange = DateTimeRange(
-          start: picked.start,
-          end: DateTime(picked.end.year, picked.end.month, picked.end.day, 23, 59, 59),
-        );
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final activeCompany = ref.watch(activeCompanyProvider);
@@ -93,22 +52,10 @@ class _AccountTabState extends ConsumerState<AccountTab> {
       return const Center(child: CircularProgressIndicator(color: Colors.blueAccent));
     }
 
-    final rawInvoices = allInvoices.where((i) => i.companyId == activeCompany.id).toList();
-    final rawPayments = allPayments.where((p) => p.companyId == activeCompany.id).toList();
+    final invoices = allInvoices.where((i) => i.companyId == activeCompany.id).toList();
+    final payments = allPayments.where((p) => p.companyId == activeCompany.id).toList();
 
-    final invoices = rawInvoices.where((i) {
-      if (_dateRange == null) return true;
-      final dt = DateTime.fromMillisecondsSinceEpoch(i.billDate);
-      return dt.isAfter(_dateRange!.start) && dt.isBefore(_dateRange!.end);
-    }).toList();
-
-    final payments = rawPayments.where((p) {
-      if (_dateRange == null) return true;
-      final dt = DateTime.fromMillisecondsSinceEpoch(p.date);
-      return dt.isAfter(_dateRange!.start) && dt.isBefore(_dateRange!.end);
-    }).toList();
-
-    final filteredPurchasers = allPurchasers.where((p) {
+    final searchFilteredPurchasers = allPurchasers.where((p) {
       return p.name.toLowerCase().contains(_searchQuery.toLowerCase());
     }).toList();
 
@@ -117,7 +64,7 @@ class _AccountTabState extends ConsumerState<AccountTab> {
     Map<String, bool> hasActivity = {};
     Map<String, int> lastPaymentDates = {};
     
-    for (var p in filteredPurchasers) { 
+    for (var p in searchFilteredPurchasers) { 
       receivables[p.id] = 0.0; 
       payables[p.id] = 0.0;
       hasActivity[p.id] = false;
@@ -126,6 +73,7 @@ class _AccountTabState extends ConsumerState<AccountTab> {
     for (var inv in invoices) {
       if (inv.purchaserId != null && receivables.containsKey(inv.purchaserId)) {
         hasActivity[inv.purchaserId!] = true;
+        // 🔥 Deltas are naturally handled here because inv.totalAmount holds the final edited math!
         if (inv.type == 'sales') {
           receivables[inv.purchaserId!] = receivables[inv.purchaserId!]! + inv.totalAmount;
         } else if (inv.type == 'purchase') {
@@ -150,7 +98,20 @@ class _AccountTabState extends ConsumerState<AccountTab> {
       }
     }
 
-    filteredPurchasers.sort((a, b) {
+    List<Purchaser> finalDisplayPurchasers = [];
+    for (var p in searchFilteredPurchasers) {
+      final theyOweUs = receivables[p.id] ?? 0.0;
+      final weOweThem = payables[p.id] ?? 0.0;
+      final hasBal = theyOweUs > 0.01 || weOweThem > 0.01;
+      final isActive = hasActivity[p.id] == true;
+
+      if (_hideZeroBalance && !hasBal && !isActive) {
+        continue;
+      }
+      finalDisplayPurchasers.add(p);
+    }
+
+    finalDisplayPurchasers.sort((a, b) {
       double recA = receivables[a.id] ?? 0.0;
       double payA = payables[a.id] ?? 0.0;
       double recB = receivables[b.id] ?? 0.0;
@@ -192,61 +153,31 @@ class _AccountTabState extends ConsumerState<AccountTab> {
         elevation: 0,
         centerTitle: false,
         actions: [
-          IconButton(
-            icon: Icon(_showFilters ? Icons.filter_list_off : Icons.filter_list),
-            color: _showFilters ? Colors.blueAccent : Colors.black87,
-            onPressed: () {
-              setState(() {
-                _showFilters = !_showFilters;
-              });
-            },
+          Row(
+            children: [
+              Transform.scale(
+                scale: 0.8,
+                child: Switch(
+                  value: _hideZeroBalance,
+                  activeThumbColor: Colors.blueAccent,
+                  activeTrackColor: Colors.blue.shade100,
+                  inactiveThumbColor: Colors.grey.shade400,
+                  inactiveTrackColor: Colors.grey.shade200,
+                  onChanged: (val) {
+                    setState(() {
+                      _hideZeroBalance = val;
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
           )
         ],
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_showFilters)
-            Container(
-              color: Colors.blue.shade50,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.calendar_month, size: 20),
-                      label: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          _dateRange == null 
-                            ? 'Select Date Range' 
-                            : '${DateFormat('dd MMM yy').format(_dateRange!.start)}  -  ${DateFormat('dd MMM yy').format(_dateRange!.end)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.blueAccent,
-                        side: BorderSide(color: Colors.blueAccent.shade200, width: 1.5),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: _selectDateRange,
-                    ),
-                  ),
-                  if (_dateRange != null) ...[
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.close_rounded, color: Colors.redAccent),
-                      style: IconButton.styleFrom(backgroundColor: Colors.red.shade50),
-                      tooltip: 'Clear Dates',
-                      onPressed: () => setState(() => _dateRange = null),
-                    )
-                  ]
-                ],
-              ),
-            ),
-
           Container(
             color: Colors.white,
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
@@ -288,7 +219,7 @@ class _AccountTabState extends ConsumerState<AccountTab> {
                 onRefresh: _syncData,
                 color: Colors.blueAccent,
                 backgroundColor: Colors.white,
-                child: filteredPurchasers.isEmpty
+                child: finalDisplayPurchasers.isEmpty
                     ? ListView(
                         physics: const AlwaysScrollableScrollPhysics(), 
                         children: [
@@ -300,7 +231,9 @@ class _AccountTabState extends ConsumerState<AccountTab> {
                                 Icon(Icons.group_off_rounded, size: 64, color: Colors.grey.shade300),
                                 const SizedBox(height: 16),
                                 Text(
-                                  _searchQuery.isEmpty ? 'No accounts found.' : 'No accounts matching "$_searchQuery"',
+                                  _searchQuery.isEmpty 
+                                    ? (_hideZeroBalance ? 'No active accounts found.' : 'No accounts found.') 
+                                    : 'No accounts matching "$_searchQuery"',
                                   style: TextStyle(color: Colors.grey.shade600, fontSize: 16, fontWeight: FontWeight.bold),
                                 ),
                               ],
@@ -311,20 +244,22 @@ class _AccountTabState extends ConsumerState<AccountTab> {
                     : ListView.builder(
                         physics: const AlwaysScrollableScrollPhysics(), 
                         padding: const EdgeInsets.only(left: 16, right: 16, top: 12, bottom: 100),
-                        itemCount: filteredPurchasers.length,
+                        itemCount: finalDisplayPurchasers.length,
                         itemBuilder: (context, index) {
-                          final person = filteredPurchasers[index];
+                          final person = finalDisplayPurchasers[index];
                           
                           final theyOweUs = receivables[person.id] ?? 0.0;
                           final weOweThem = payables[person.id] ?? 0.0;
                           final hasBal = theyOweUs > 0.01 || weOweThem > 0.01;
                           final isActive = hasActivity[person.id] == true;
                           
-                          // 🔥 UPDATED: Settled accounts are now blue, No Balance remains grey
                           Color accentColor = Colors.grey.shade300;
                           if (hasBal) {
-                            if (theyOweUs > weOweThem) accentColor = Colors.green.shade400;
-                            else accentColor = Colors.red.shade400;
+                            if (theyOweUs > weOweThem) {
+                              accentColor = Colors.green.shade400;
+                            } else {
+                              accentColor = Colors.red.shade400;
+                            }
                           } else if (isActive) {
                             accentColor = Colors.blue.shade400;
                           }
@@ -383,7 +318,6 @@ class _AccountTabState extends ConsumerState<AccountTab> {
                                                   if (isActive) ...[
                                                     Row(
                                                       children: [
-                                                        // 🔥 UPDATED: Blue checkmark and text for Settled status
                                                         Icon(Icons.check_circle, size: 14, color: Colors.blue.shade400),
                                                         const SizedBox(width: 4),
                                                         Text('Settled', style: TextStyle(color: Colors.blue.shade600, fontWeight: FontWeight.w800, fontSize: 13)),

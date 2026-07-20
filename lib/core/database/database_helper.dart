@@ -3,10 +3,9 @@ import 'package:path/path.dart';
 import '../../models/company_model.dart';
 import '../../models/purchaser_model.dart';
 import '../../models/invoice_model.dart';
-import '../../models/payment_model.dart'; // Ensure Payment model is imported
+import '../../models/payment_model.dart';
 
 class DatabaseHelper {
-  // Singleton pattern
   static final DatabaseHelper instance = DatabaseHelper._init();
   static Database? _database;
 
@@ -24,9 +23,19 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2, // 🔥 CHANGED TO 2: This tells SQLite to check for updates
       onCreate: _createDB,
+      onUpgrade: _upgradeDB, // 🔥 ADDED: Safely upgrades existing users
     );
+  }
+
+  // 🔥 NEW MIGRATION FUNCTION FOR EXISTING USERS
+  Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Safely inject the new columns into the existing table without deleting data
+      await db.execute('ALTER TABLE invoices ADD COLUMN purchaser_snapshot TEXT');
+      await db.execute('ALTER TABLE invoices ADD COLUMN company_snapshot TEXT');
+    }
   }
 
   Future<void> _createDB(Database db, int version) async {
@@ -79,7 +88,7 @@ class DatabaseHelper {
       )
     ''');
 
-    // 4. Invoice Table
+    // 4. Invoice Table (🔥 UPDATED FOR NEW INSTALLS)
     await db.execute('''
       CREATE TABLE invoices (
         id TEXT PRIMARY KEY,
@@ -102,7 +111,9 @@ class DatabaseHelper {
         gstAmount REAL,
         totalAmount REAL,
         lastUpdated INTEGER NOT NULL,
-        isDeleted INTEGER NOT NULL DEFAULT 0
+        isDeleted INTEGER NOT NULL DEFAULT 0,
+        purchaser_snapshot TEXT,
+        company_snapshot TEXT
       )
     ''');
 
@@ -122,97 +133,54 @@ class DatabaseHelper {
   }
 
   // --- CRUD OPERATIONS (COMPANY) ---
-
   Future<void> insertCompany(Company company) async {
     final db = await instance.database;
-    await db.insert(
-      'companies',
-      company.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace, 
-    );
+    await db.insert('companies', company.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<List<Company>> getCompaniesByUser(String userId) async {
     final db = await instance.database;
-    final maps = await db.query(
-      'companies',
-      where: 'userId = ? AND isDeleted = ?',
-      whereArgs: [userId, 0],
-    );
+    final maps = await db.query('companies', where: 'userId = ? AND isDeleted = ?', whereArgs: [userId, 0]);
     return maps.map((map) => Company.fromMap(map)).toList();
   }
 
   Future<void> updateCompany(Company company) async {
     final db = await instance.database;
-    await db.update(
-      'companies',
-      company.toMap(),
-      where: 'id = ?',
-      whereArgs: [company.id],
-    );
+    await db.update('companies', company.toMap(), where: 'id = ?', whereArgs: [company.id]);
   }
 
   // --- CRUD OPERATIONS (PURCHASER) ---
-
   Future<void> insertPurchaser(Purchaser purchaser) async {
     final db = await instance.database;
-    await db.insert(
-      'purchasers',
-      purchaser.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('purchasers', purchaser.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<void> updatePurchaser(Purchaser purchaser) async {
     final db = await instance.database;
-    await db.update(
-      'purchasers',
-      purchaser.toMap(),
-      where: 'id = ?',
-      whereArgs: [purchaser.id],
-    );
+    await db.update('purchasers', purchaser.toMap(), where: 'id = ?', whereArgs: [purchaser.id]);
   }
 
   Future<List<Purchaser>> getPurchasersByUser(String userId) async {
     final db = await instance.database;
-    final maps = await db.query(
-      'purchasers',
-      where: 'userId = ? AND isDeleted = ?',
-      whereArgs: [userId, 0], 
-    );
+    final maps = await db.query('purchasers', where: 'userId = ? AND isDeleted = ?', whereArgs: [userId, 0]);
     return maps.map((map) => Purchaser.fromMap(map)).toList();
   }
 
   // --- CRUD OPERATIONS (INVOICE) ---
-
   Future<void> insertInvoice(Invoice invoice) async {
     final db = await instance.database;
-    await db.insert(
-      'invoices',
-      invoice.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('invoices', invoice.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<List<Invoice>> getInvoicesByCompany(String companyId) async {
     final db = await instance.database;
-    final maps = await db.query(
-      'invoices',
-      where: 'companyId = ? AND isDeleted = ?',
-      whereArgs: [companyId, 0],
-      orderBy: 'billDate DESC', 
-    );
+    final maps = await db.query('invoices', where: 'companyId = ? AND isDeleted = ?', whereArgs: [companyId, 0], orderBy: 'billDate DESC');
     return maps.map((map) => Invoice.fromMap(map)).toList();
   }
 
   Future<void> updateInvoice(Invoice invoice) async {
     final db = await instance.database;
-    await db.update(
-      'invoices',
-      invoice.toMap(),
-      where: 'id = ?',
-      whereArgs: [invoice.id],
-    );
+    await db.update('invoices', invoice.toMap(), where: 'id = ?', whereArgs: [invoice.id]);
   }
 
   Future<void> deleteInvoice(String id) async {
@@ -221,7 +189,6 @@ class DatabaseHelper {
   }
   
   // --- CRUD OPERATIONS (PAYMENTS) ---
-
   Future<void> insertPayment(Payment payment) async {
     final db = await instance.database;
     await db.insert('payments', payment.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
@@ -238,7 +205,6 @@ class DatabaseHelper {
     return await db.delete('payments', where: 'id = ?', whereArgs: [id]);
   }
 
-  // Close database
   Future close() async {
     final db = await instance.database;
     db.close();

@@ -8,7 +8,9 @@ list(APPEND FLUTTER_PLUGIN_LIST
   local_auth_windows
   printing
   protocol_handler_windows
+  screen_retriever_windows
   url_launcher_windows
+  window_manager
   windows_single_instance
 )
 

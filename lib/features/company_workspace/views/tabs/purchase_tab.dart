@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart'; // 🔥 ADDED FOR PC SWIPING
+import 'package:flutter/gestures.dart'; 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart'; 
@@ -10,7 +10,7 @@ import '../../providers/purchaser_provider.dart';
 import '../../providers/invoice_provider.dart';
 import '../editable_purchase_screen.dart';
 import '../../../authentication/providers/auth_provider.dart'; 
-import '../../../../core/database/sync_engine.dart'; // 🔥 ADDED FOR CLOUD SYNC
+import '../../../../core/database/sync_engine.dart'; 
 
 class PurchaseTab extends ConsumerStatefulWidget {
   const PurchaseTab({super.key});
@@ -24,19 +24,27 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
   
   bool _isCustomVendor = false; 
   Purchaser? _selectedVendor;
-  DateTime _billDate = DateTime.now(); // Added missing Date functionality
+  DateTime _billDate = DateTime.now(); 
   
   final _customVendorController = TextEditingController();
   final _billNoController = TextEditingController();
   final _amountController = TextEditingController(); 
-  final _gstPercentController = TextEditingController(text: '0.0'); 
   
-  double _calculatedGstRupees = 0.0;
+  // --- 🔥 NEW: SEPARATE GST CONTROLLERS ---
+  final _partySgstCtrl = TextEditingController(text: '0.0');
+  final _partyCgstCtrl = TextEditingController(text: '0.0');
+  final _partyIgstCtrl = TextEditingController(text: '0.0'); 
+  
+  double _cgstAmount = 0.0;
+  double _sgstAmount = 0.0;
+  double _igstAmount = 0.0;
+  double _gstAmount = 0.0;
   double _totalAmount = 0.0;
 
   // --- COMMA FORMATTER ---
   String formatAmount(double val) {
-    return NumberFormat.currency(locale: 'en_IN', symbol: '', decimalDigits: 0).format(val);
+    final formatter = NumberFormat.decimalPattern('en_IN');
+    return '${formatter.format(val.round())}/-';
   }
 
   @override
@@ -44,11 +52,12 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
     _customVendorController.dispose();
     _billNoController.dispose();
     _amountController.dispose();
-    _gstPercentController.dispose();
+    _partySgstCtrl.dispose();
+    _partyCgstCtrl.dispose();
+    _partyIgstCtrl.dispose();
     super.dispose();
   }
 
-  // --- 🔥 NEW: SYNC FUNCTION ---
   Future<void> _syncData() async {
     await SyncEngine.syncAll();
     ref.invalidate(invoiceProvider);
@@ -75,13 +84,26 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
     }
   }
 
+  // --- 🔥 UPDATED: CALCULATE SEPARATE GSTS ---
   void _calculateTotal() {
     setState(() {
       double subTotal = double.tryParse(_amountController.text) ?? 0.0;
-      double gstPercent = double.tryParse(_gstPercentController.text) ?? 0.0;
       
-      _calculatedGstRupees = (subTotal * (gstPercent / 100)).roundToDouble();
-      _totalAmount = (subTotal + _calculatedGstRupees).roundToDouble();
+      double sgst = double.tryParse(_partySgstCtrl.text) ?? 0.0;
+      double cgst = double.tryParse(_partyCgstCtrl.text) ?? 0.0;
+      double igst = double.tryParse(_partyIgstCtrl.text) ?? 0.0;
+      
+      _sgstAmount = (subTotal * (sgst / 100));
+      _cgstAmount = (subTotal * (cgst / 100));
+      _igstAmount = (subTotal * (igst / 100));
+      
+      _gstAmount = _sgstAmount + _cgstAmount + _igstAmount;
+      _sgstAmount = _sgstAmount.roundToDouble();
+      _cgstAmount = _cgstAmount.roundToDouble();
+      _igstAmount = _igstAmount.roundToDouble();
+      _gstAmount = _gstAmount.roundToDouble();
+      
+      _totalAmount = (subTotal + _gstAmount).roundToDouble();
     });
   }
 
@@ -109,7 +131,9 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
           userId: currentUserId, 
           name: _customVendorController.text.trim(),
           address1: '', address2: '', particulars: '', gstin: '', hsnNo: '',
-          sgstRate: 0, cgstRate: 0, igstRate: 0,
+          sgstRate: double.tryParse(_partySgstCtrl.text) ?? 0.0, 
+          cgstRate: double.tryParse(_partyCgstCtrl.text) ?? 0.0, 
+          igstRate: double.tryParse(_partyIgstCtrl.text) ?? 0.0,
           lastUpdated: DateTime.now().millisecondsSinceEpoch,
         );
         await ref.read(purchaserProvider.notifier).addPurchaser(finalVendor);
@@ -124,15 +148,16 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
         type: 'purchase',
         purchaserId: finalVendor.id,
         billNo: _billNoController.text.trim(),
-        billDate: _billDate.millisecondsSinceEpoch, // Updated to use the selected date
+        billDate: _billDate.millisecondsSinceEpoch, 
         truckNo: '', driverName: '', licNo: '', nos: 1, unit: 'NA', quantity: 1,
         rate: double.tryParse(_amountController.text) ?? 0.0,
         amount: double.tryParse(_amountController.text) ?? 0.0,
         labourCharge: 0.0,
         subTotal: double.tryParse(_amountController.text) ?? 0.0,
-        gstAmount: _calculatedGstRupees, 
+        gstAmount: _gstAmount, 
         totalAmount: _totalAmount,
         lastUpdated: DateTime.now().millisecondsSinceEpoch,
+        isDeleted: 0,
       );
 
       await ref.read(invoiceProvider.notifier).addInvoice(invoice);
@@ -148,18 +173,22 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
         setState(() {
           _selectedVendor = null;
           _totalAmount = 0.0;
-          _calculatedGstRupees = 0.0;
+          _gstAmount = 0.0;
+          _sgstAmount = 0.0;
+          _cgstAmount = 0.0;
+          _igstAmount = 0.0;
           _customVendorController.clear();
           _billNoController.clear();
           _amountController.clear();
-          _gstPercentController.text = '0.0';
+          _partySgstCtrl.text = '0.0';
+          _partyCgstCtrl.text = '0.0';
+          _partyIgstCtrl.text = '0.0';
           _billDate = DateTime.now();
         });
       }
     }
   }
 
-  // --- PREMIUM TEXT FIELD STYLING (Matches Sales Tab) ---
   InputDecoration _customInputDeco(String label, {IconData? icon}) {
     return InputDecoration(
       labelText: label,
@@ -181,13 +210,12 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
     final sortedVendors = vendors.toList()..sort((a, b) => a.name.compareTo(b.name));
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F7FC), // Soft background
-      // --- 🔥 WRAPPED IN SCROLL CONFIG & REFRESH INDICATOR ---
+      backgroundColor: const Color(0xFFF4F7FC), 
       body: ScrollConfiguration(
         behavior: ScrollConfiguration.of(context).copyWith(
           dragDevices: {
             PointerDeviceKind.touch,
-            PointerDeviceKind.mouse, // PC mouse swiping enabled
+            PointerDeviceKind.mouse, 
             PointerDeviceKind.trackpad,
           },
         ),
@@ -198,7 +226,7 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
           child: Form(
             key: _formKey,
             child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(), // MUST BE HERE for pull-to-refresh
+              physics: const AlwaysScrollableScrollPhysics(), 
               padding: const EdgeInsets.all(16.0),
               children: [
                 const Text('Log Inbound Purchase', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF203A43))),
@@ -288,7 +316,9 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
                           setState(() {
                             _selectedVendor = val;
                             if (val != null) {
-                              _gstPercentController.text = (val.igstRate + val.cgstRate + val.sgstRate).toString();
+                              _partySgstCtrl.text = val.sgstRate.toString();
+                              _partyCgstCtrl.text = val.cgstRate.toString();
+                              _partyIgstCtrl.text = val.igstRate.toString();
                               _calculateTotal();
                             }
                           });
@@ -316,30 +346,24 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
                 const SizedBox(height: 12),
                 
                 // --- AMOUNT & GST ---
+                TextFormField(
+                  controller: _amountController,
+                  decoration: _customInputDeco('Amount (W/O GST)'),
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  onChanged: (_) => _calculateTotal(),
+                  validator: (v) => v!.isEmpty ? 'Required' : null,
+                ),
+                const SizedBox(height: 12),
+
+                // 🔥 NEW: INDIVIDUAL GST FIELDS
                 Row(
                   children: [
-                    Expanded(
-                      flex: 2,
-                      child: TextFormField(
-                        controller: _amountController,
-                        decoration: _customInputDeco('Amount (W/O GST)'),
-                        keyboardType: TextInputType.number,
-                        textInputAction: TextInputAction.next,
-                        onChanged: (_) => _calculateTotal(),
-                        validator: (v) => v!.isEmpty ? 'Required' : null,
-                      ),
-                    ),
+                    Expanded(child: TextFormField(controller: _partySgstCtrl, decoration: _customInputDeco('SGST %'), keyboardType: TextInputType.number, onChanged: (_) => _calculateTotal())),
                     const SizedBox(width: 12),
-                    Expanded(
-                      flex: 1,
-                      child: TextFormField(
-                        controller: _gstPercentController,
-                        decoration: _customInputDeco('GST %'),
-                        keyboardType: TextInputType.number,
-                        textInputAction: TextInputAction.done,
-                        onChanged: (_) => _calculateTotal(),
-                      ),
-                    ),
+                    Expanded(child: TextFormField(controller: _partyCgstCtrl, decoration: _customInputDeco('CGST %'), keyboardType: TextInputType.number, onChanged: (_) => _calculateTotal())),
+                    const SizedBox(width: 12),
+                    Expanded(child: TextFormField(controller: _partyIgstCtrl, decoration: _customInputDeco('IGST %'), keyboardType: TextInputType.number, onChanged: (_) => _calculateTotal())),
                   ],
                 ),
                 
@@ -355,21 +379,20 @@ class _PurchaseTabState extends ConsumerState<PurchaseTab> {
                   ),
                   child: Column(
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween, 
-                        children: [
-                          Text('Calculated GST:', style: TextStyle(color: Colors.red.shade900, fontWeight: FontWeight.w600)), 
-                          Text('₹${formatAmount(_calculatedGstRupees)}', style: TextStyle(color: Colors.red.shade900, fontWeight: FontWeight.bold))
-                        ]
-                      ),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('Sub Total:', style: TextStyle(color: Colors.red.shade900, fontWeight: FontWeight.w600)), Text('₹${formatAmount(double.tryParse(_amountController.text) ?? 0.0)}', style: TextStyle(color: Colors.red.shade900, fontWeight: FontWeight.bold))]),
+                      
+                      const SizedBox(height: 12),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('CGST (${_partyCgstCtrl.text.isEmpty ? "0" : _partyCgstCtrl.text}%):', style: TextStyle(color: Colors.red.shade400)), Text('₹${formatAmount(_cgstAmount)}', style: TextStyle(color: Colors.red.shade400))]),
+                      const SizedBox(height: 4),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('SGST (${_partySgstCtrl.text.isEmpty ? "0" : _partySgstCtrl.text}%):', style: TextStyle(color: Colors.red.shade400)), Text('₹${formatAmount(_sgstAmount)}', style: TextStyle(color: Colors.red.shade400))]),
+                      const SizedBox(height: 4),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('IGST (${_partyIgstCtrl.text.isEmpty ? "0" : _partyIgstCtrl.text}%):', style: TextStyle(color: Colors.red.shade400)), Text('₹${formatAmount(_igstAmount)}', style: TextStyle(color: Colors.red.shade400))]),
+                      
                       const Divider(height: 24, thickness: 1.5),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween, 
-                        children: [
-                          const Text('Total Expense:', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Color(0xFF203A43))), 
-                          Text('₹${formatAmount(_totalAmount)}', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 22, color: Colors.red.shade700))
-                        ]
-                      ),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        const Text('Total Expense:', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Color(0xFF203A43))), 
+                        Text('₹${formatAmount(_totalAmount)}', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 22, color: Colors.red.shade700))
+                      ]),
                     ],
                   ),
                 ),

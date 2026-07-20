@@ -26,6 +26,33 @@ class PdfGenerator {
   ) async {
     final pdf = pw.Document();
 
+    // --- 🔥 DELTA SNAPSHOT EXTRACTOR ---
+    // This reads the specific changes made to this invoice, falling back to master data
+    final pSnap = invoice.purchaserSnapshot ?? {};
+    final cSnap = invoice.companySnapshot ?? {};
+
+    final String compName = cSnap['name'] ?? company.name;
+    final String compAddress1 = cSnap['address1'] ?? company.address1;
+    final String compAddress2 = cSnap['address2'] ?? company.address2;
+    final String compGstin = cSnap['gstin'] ?? company.gstin;
+    final String compMobile = cSnap['mobileNumber'] ?? company.mobileNumber;
+    final String compBankName = cSnap['bankName'] ?? company.bankName;
+    final String compAccNo = cSnap['accountNumber'] ?? company.accountNumber;
+    final String compIfsc = cSnap['ifscCode'] ?? company.ifscCode;
+
+    final String purName = pSnap['name'] ?? purchaser.name;
+    final String purAddress1 = pSnap['address1'] ?? purchaser.address1;
+    final String purAddress2 = pSnap['address2'] ?? purchaser.address2;
+    final String purGstin = pSnap['gstin'] ?? purchaser.gstin;
+    final String purParticulars = pSnap['particulars'] ?? purchaser.particulars;
+    final String purHsn = pSnap['hsnNo'] ?? purchaser.hsnNo;
+    
+    // .toDouble() ensures safe parsing from JSON
+    final double purSgst = (pSnap['sgstRate'] ?? purchaser.sgstRate).toDouble();
+    final double purCgst = (pSnap['cgstRate'] ?? purchaser.cgstRate).toDouble();
+    final double purIgst = (pSnap['igstRate'] ?? purchaser.igstRate).toDouble();
+
+
     // --- FONT LOADING WITH SAFE FALLBACKS ---
     pw.Font baseFont = pw.Font.times();
     pw.Font boldFont = pw.Font.timesBold();
@@ -152,7 +179,7 @@ class PdfGenerator {
                         child: pw.Container(
                           padding: const pw.EdgeInsets.symmetric(vertical: 1),
                           child: pw.Text(
-                            'REIPLICATE',
+                            'REPLICATE',
                             textAlign: pw.TextAlign.center,
                             style: pw.TextStyle(
                               fontWeight: pw.FontWeight.bold,
@@ -172,7 +199,7 @@ class PdfGenerator {
                   ),
                   padding: const pw.EdgeInsets.symmetric(vertical: 0),
                   child: pw.Text(
-                    company.name.toUpperCase(),
+                    compName.toUpperCase(),
                     textAlign: pw.TextAlign.center,
                     style: pw.TextStyle(
                       font: copperplateFont,
@@ -189,7 +216,7 @@ class PdfGenerator {
                   ),
                   padding: const pw.EdgeInsets.symmetric(vertical: 0),
                   child: pw.Text(
-                    company.address1.toUpperCase(),
+                    compAddress1.toUpperCase(),
                     textAlign: pw.TextAlign.center,
                     style: pw.TextStyle(
                       fontSize: 10,
@@ -205,7 +232,7 @@ class PdfGenerator {
                   ),
                   padding: const pw.EdgeInsets.symmetric(vertical: 0),
                   child: pw.Text(
-                    company.address2.toUpperCase(),
+                    compAddress2.toUpperCase(),
                     textAlign: pw.TextAlign.center,
                     style: pw.TextStyle(
                       fontSize: 9,
@@ -221,7 +248,7 @@ class PdfGenerator {
                   ),
                   padding: const pw.EdgeInsets.symmetric(vertical: 1),
                   child: pw.Text(
-                    'GST NO: ${company.gstin}'.toUpperCase(),
+                    'GST NO: $compGstin'.toUpperCase(),
                     textAlign: pw.TextAlign.center,
                     style: pw.TextStyle(
                       fontWeight: pw.FontWeight.bold,
@@ -237,7 +264,7 @@ class PdfGenerator {
                   ),
                   padding: const pw.EdgeInsets.symmetric(vertical: 1),
                   child: pw.Text(
-                    'MO. ${company.mobileNumber}'.toUpperCase(),
+                    'MO. $compMobile'.toUpperCase(),
                     textAlign: pw.TextAlign.center,
                     style: pw.TextStyle(
                       fontSize: 9,
@@ -276,7 +303,7 @@ class PdfGenerator {
                           verticalPadding: 1,
                         ),
                         _cell(
-                          purchaser.name.toUpperCase(),
+                          purName.toUpperCase(),
                           decoration: bottomLight,
                           verticalPadding: 1,
                         ),
@@ -313,7 +340,7 @@ class PdfGenerator {
                           ),
                         ),
                         _cell(
-                          purchaser.address1.toUpperCase(),
+                          purAddress1.toUpperCase(),
                           decoration: bottomLight,
                           verticalPadding: 1,
                         ),
@@ -349,7 +376,7 @@ class PdfGenerator {
                           ),
                           alignment: pw.Alignment.center,
                           child: pw.Text(
-                            purchaser.address2.toUpperCase(),
+                            purAddress2.toUpperCase(),
                             textAlign: pw.TextAlign.center,
                             style: pw.TextStyle(
                               fontWeight: pw.FontWeight.bold,
@@ -406,7 +433,7 @@ class PdfGenerator {
                           verticalPadding: 1,
                         ),
                         _cell(
-                          purchaser.gstin.toUpperCase(),
+                          purGstin.toUpperCase(),
                           fontSize: 12,
                           decoration: const pw.BoxDecoration(
                             border: pw.Border(
@@ -488,7 +515,7 @@ class PdfGenerator {
 
                     pw.TableRow(
                       children: [
-                        // --- 🔥 THE MAGIC HAPPENS HERE: DYNAMIC MULTI-LINE ITEMS ---
+                        // --- DYNAMIC MULTI-LINE ITEMS ---
                         pw.Padding(
                           padding: const pw.EdgeInsets.symmetric(
                             vertical: 12,
@@ -496,7 +523,7 @@ class PdfGenerator {
                           ),
                           child: pw.Column(
                             crossAxisAlignment: pw.CrossAxisAlignment.center,
-                            children: purchaser.particulars
+                            children: purParticulars
                                 .split(',')
                                 .map((e) => e.trim())
                                 .where((e) => e.isNotEmpty)
@@ -516,7 +543,7 @@ class PdfGenerator {
                           ),
                         ),
                         _cell(
-                          purchaser.hsnNo.toUpperCase(),
+                          purHsn.toUpperCase(),
                           align: pw.TextAlign.center,
                           verticalPadding: 12,
                         ),
@@ -691,13 +718,13 @@ class PdfGenerator {
                           verticalPadding: 0,
                         ),
                         _cell(
-                          '${purchaser.sgstRate.toStringAsFixed(2)}%',
+                          '${purSgst.toStringAsFixed(2)}%',
                           align: pw.TextAlign.center,
                           verticalPadding: 0,
                         ),
                         _cell(
                           _formatAmount(
-                            (invoice.subTotal * (purchaser.sgstRate / 100))
+                            (invoice.subTotal * (purSgst / 100))
                                 .round(),
                             decimals: 0,
                           ),
@@ -718,13 +745,13 @@ class PdfGenerator {
                           verticalPadding: 0,
                         ),
                         _cell(
-                          '${purchaser.cgstRate.toStringAsFixed(2)}%',
+                          '${purCgst.toStringAsFixed(2)}%',
                           align: pw.TextAlign.center,
                           verticalPadding: 0,
                         ),
                         _cell(
                           _formatAmount(
-                            (invoice.subTotal * (purchaser.cgstRate / 100))
+                            (invoice.subTotal * (purCgst / 100))
                                 .round(),
                             decimals: 0,
                           ),
@@ -742,13 +769,13 @@ class PdfGenerator {
                           verticalPadding: 0,
                         ),
                         _cell(
-                          '${purchaser.igstRate.toStringAsFixed(2)}%',
+                          '${purIgst.toStringAsFixed(2)}%',
                           align: pw.TextAlign.center,
                           verticalPadding: 0,
                         ),
                         _cell(
                           _formatAmount(
-                            (invoice.subTotal * (purchaser.igstRate / 100))
+                            (invoice.subTotal * (purIgst / 100))
                                 .round(),
                             decimals: 0,
                           ),
@@ -901,14 +928,14 @@ class PdfGenerator {
                                       ),
                                       pw.SizedBox(height: 4),
                                       pw.Text(
-                                        company.bankName.toUpperCase(),
+                                        compBankName.toUpperCase(),
                                         style: pw.TextStyle(
                                           fontSize: 10,
                                           fontWeight: pw.FontWeight.bold,
                                         ),
                                       ),
                                       pw.Text(
-                                        'A/C NO. :- ${company.accountNumber}'
+                                        'A/C NO. :- $compAccNo'
                                             .toUpperCase(),
                                         style: pw.TextStyle(
                                           fontSize: 10,
@@ -916,7 +943,7 @@ class PdfGenerator {
                                         ),
                                       ),
                                       pw.Text(
-                                        'IFSC CODE :- ${company.ifscCode}'
+                                        'IFSC CODE :- $compIfsc'
                                             .toUpperCase(),
                                         style: pw.TextStyle(
                                           fontSize: 10,
@@ -941,7 +968,7 @@ class PdfGenerator {
                         padding: const pw.EdgeInsets.only(right: 12, bottom: 4),
                         alignment: pw.Alignment.bottomRight,
                         child: pw.Text(
-                          'FOR, ${company.name.toUpperCase()}',
+                          'FOR, ${compName.toUpperCase()}',
                           style: pw.TextStyle(
                             font: copperplateFont,
                             fontWeight: pw.FontWeight.bold,
@@ -969,6 +996,14 @@ class PdfGenerator {
     Purchaser purchaser,
   ) async {
     final pdf = pw.Document();
+
+    // --- 🔥 DELTA SNAPSHOT EXTRACTOR ---
+    final pSnap = invoice.purchaserSnapshot ?? {};
+    final cSnap = invoice.companySnapshot ?? {};
+
+    final String compName = cSnap['name'] ?? company.name;
+    final String purName = pSnap['name'] ?? purchaser.name;
+    final String purGstin = pSnap['gstin'] ?? purchaser.gstin;
 
     pw.Font baseFont = pw.Font.times();
     pw.Font boldFont = pw.Font.timesBold();
@@ -1004,7 +1039,7 @@ class PdfGenerator {
                   child: pw.Column(
                     children: [
                       pw.Text(
-                        company.name.toUpperCase(),
+                        compName.toUpperCase(),
                         style: pw.TextStyle(
                           fontSize: 24,
                           fontWeight: pw.FontWeight.bold,
@@ -1038,7 +1073,7 @@ class PdfGenerator {
                             style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
                           ),
                           pw.Text(
-                            purchaser.name.toUpperCase(),
+                            purName.toUpperCase(),
                             style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
                           ),
                         ],
@@ -1057,9 +1092,9 @@ class PdfGenerator {
                             style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
                           ),
                           pw.Text(
-                            purchaser.gstin.isEmpty
+                            purGstin.isEmpty
                                 ? 'N/A'
-                                : purchaser.gstin.toUpperCase(),
+                                : purGstin.toUpperCase(),
                             style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
                           ),
                         ],

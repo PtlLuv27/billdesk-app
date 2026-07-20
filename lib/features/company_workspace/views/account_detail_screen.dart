@@ -12,6 +12,8 @@ import '../providers/company_provider.dart';
 import '../../authentication/providers/auth_provider.dart'; 
 import '../../../core/database/sync_engine.dart'; 
 import '../providers/purchaser_provider.dart';
+import 'editable_invoice_screen.dart';
+import 'editable_purchase_screen.dart';
 
 class AccountDetailScreen extends ConsumerStatefulWidget {
   final Purchaser purchaser;
@@ -23,20 +25,6 @@ class AccountDetailScreen extends ConsumerStatefulWidget {
 
 class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
   String _filter = 'Sales'; 
-  bool _showFilters = false; // 🔥 Toggles the filter panel visibility
-  DateTimeRange? _dateRange;
-
-  @override
-  void initState() {
-    super.initState();
-    // 🔥 Set default date range to the current Financial Year (April 1st to March 31st)
-    final now = DateTime.now();
-    int startYear = now.month < 4 ? now.year - 1 : now.year;
-    _dateRange = DateTimeRange(
-      start: DateTime(startYear, 4, 1),
-      end: DateTime(startYear + 1, 3, 31, 23, 59, 59),
-    );
-  }
 
   String formatIndianCurrency(double val) {
     final formatter = NumberFormat.decimalPattern('en_IN');
@@ -48,37 +36,6 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
     ref.invalidate(invoiceProvider);
     ref.invalidate(paymentProvider);
     ref.invalidate(purchaserProvider);
-  }
-
-  Future<void> _selectDateRange() async {
-    final picked = await showDateRangePicker(
-      context: context,
-      initialDateRange: _dateRange,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Colors.blueAccent,
-              onPrimary: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-    
-    if (picked != null) {
-      setState(() {
-        // Adjust the end date to cover the entire last day
-        _dateRange = DateTimeRange(
-          start: picked.start,
-          end: DateTime(picked.end.year, picked.end.month, picked.end.day, 23, 59, 59),
-        );
-      });
-    }
   }
 
   void _showAddPaymentDialog(bool isReceiving) {
@@ -206,7 +163,7 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
                   final company = ref.read(activeCompanyProvider);
                   if (company == null) return; 
 
-                  // 🔥 Reverse GST Calculation Math
+                  // Reverse GST Calculation Math
                   final totalAmt = double.parse(amtCtrl.text);
                   final p = widget.purchaser;
                   
@@ -228,14 +185,17 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
                     billDate: selectedDate.millisecondsSinceEpoch, 
                     truckNo: '', driverName: '', licNo: '', 
                     nos: 1, unit: 'NA', quantity: 1, 
-                    rate: calculatedSubTotal, // Rate = SubTotal
-                    amount: calculatedSubTotal, // Amount = SubTotal
+                    rate: calculatedSubTotal, 
+                    amount: calculatedSubTotal, 
                     labourCharge: 0, 
                     subTotal: calculatedSubTotal, 
                     gstAmount: totalGstAmt, 
                     totalAmount: totalAmt, 
                     lastUpdated: DateTime.now().millisecondsSinceEpoch,
                     isDeleted: 0,
+                    // 🔥 Snapshot is null for manual entries since we didn't edit party info
+                    purchaserSnapshot: null,
+                    companySnapshot: null,
                   );  
                   
                   await ref.read(invoiceProvider.notifier).addInvoice(invoice);
@@ -289,28 +249,15 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Fetch raw data
+    // 1. Fetch raw data directly without date filtering
     final allInvoices = ref.watch(invoiceProvider).where((i) => i.purchaserId == widget.purchaser.id).toList();
     final allPayments = ref.watch(paymentProvider).where((p) => p.purchaserId == widget.purchaser.id).toList();
 
-    // 2. Filter by selected Dates
-    final dateFilteredInvoices = allInvoices.where((i) {
-      if (_dateRange == null) return true;
-      final dt = DateTime.fromMillisecondsSinceEpoch(i.billDate);
-      return dt.isAfter(_dateRange!.start) && dt.isBefore(_dateRange!.end);
-    }).toList();
-
-    final dateFilteredPayments = allPayments.where((p) {
-      if (_dateRange == null) return true;
-      final dt = DateTime.fromMillisecondsSinceEpoch(p.date);
-      return dt.isAfter(_dateRange!.start) && dt.isBefore(_dateRange!.end);
-    }).toList();
-
     final isSalesMode = _filter == 'Sales';
     
-    // 3. Filter by Transaction Type (Sales vs Purchases)
-    final relevantInvoices = dateFilteredInvoices.where((i) => i.type == (isSalesMode ? 'sales' : 'purchase')).toList();
-    final relevantPayments = dateFilteredPayments.where((p) => p.type == (isSalesMode ? 'received' : 'paid')).toList();
+    // 2. Filter by Transaction Type (Sales vs Purchases)
+    final relevantInvoices = allInvoices.where((i) => i.type == (isSalesMode ? 'sales' : 'purchase')).toList();
+    final relevantPayments = allPayments.where((p) => p.type == (isSalesMode ? 'received' : 'paid')).toList();
 
     relevantInvoices.sort((a, b) => b.billDate.compareTo(a.billDate));
     relevantPayments.sort((a, b) => b.date.compareTo(a.date));
@@ -326,18 +273,6 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 1,
-        actions: [
-          // 🔥 NEW: Filter Toggle Button
-          IconButton(
-            icon: Icon(_showFilters ? Icons.filter_list_off : Icons.filter_list),
-            color: _showFilters ? Colors.blueAccent : Colors.black87,
-            onPressed: () {
-              setState(() {
-                _showFilters = !_showFilters;
-              });
-            },
-          )
-        ],
       ),
       body: ScrollConfiguration(
         behavior: ScrollConfiguration.of(context).copyWith(
@@ -354,48 +289,6 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(), 
             children: [
-              // 🔥 NEW: Expandable Filter Section
-              if (_showFilters)
-                Container(
-                  color: Colors.blue.shade50,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.calendar_month, size: 20),
-                          label: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              _dateRange == null 
-                                ? 'Select Date Range' 
-                                : '${DateFormat('dd MMM yy').format(_dateRange!.start)}  -  ${DateFormat('dd MMM yy').format(_dateRange!.end)}',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                            backgroundColor: Colors.white,
-                            foregroundColor: Colors.blueAccent,
-                            side: BorderSide(color: Colors.blueAccent.shade200, width: 1.5),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          onPressed: _selectDateRange,
-                        ),
-                      ),
-                      if (_dateRange != null) ...[
-                        const SizedBox(width: 8),
-                        IconButton(
-                          icon: const Icon(Icons.close_rounded, color: Colors.redAccent),
-                          style: IconButton.styleFrom(backgroundColor: Colors.red.shade50),
-                          tooltip: 'Clear Dates',
-                          onPressed: () => setState(() => _dateRange = null),
-                        )
-                      ]
-                    ],
-                  ),
-                ),
-
               Container(
                 color: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -624,7 +517,19 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
   }
 
   Widget _buildInvoiceTile(Invoice i) {
+    final bool isManual = i.billNo.trim().toUpperCase() == 'MANUAL' || i.billNo.trim().isEmpty;
+    final String displayBillName = isManual ? 'Manual Entry' : 'Bill #${i.billNo}';
+
     return InkWell(
+      // 🔥 ADDED ON-TAP FOR QUICK NAVIGATION
+      onTap: () {
+        final company = ref.read(activeCompanyProvider);
+        if (i.type == 'sales') {
+          Navigator.push(context, MaterialPageRoute(builder: (context) => InvoicePreviewScreen(invoice: i, company: company!, purchaser: widget.purchaser)));
+        } else {
+          Navigator.push(context, MaterialPageRoute(builder: (context) => EditablePurchaseScreen(invoice: i, company: company!, purchaser: widget.purchaser)));
+        }
+      },
       onLongPress: () {
         showModalBottomSheet(
           context: context,
@@ -640,7 +545,10 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
                       final updated = Invoice(
                         id: i.id, userId: i.userId, companyId: i.companyId, type: i.type, purchaserId: i.purchaserId, billNo: i.billNo, billDate: i.billDate, truckNo: i.truckNo, driverName: i.driverName, licNo: i.licNo, nos: i.nos, unit: i.unit, quantity: i.quantity, rate: i.rate, 
                         amount: newAmt, labourCharge: i.labourCharge, subTotal: newAmt, gstAmount: 0, totalAmount: newAmt,
-                        lastUpdated: DateTime.now().millisecondsSinceEpoch, isDeleted: i.isDeleted
+                        lastUpdated: DateTime.now().millisecondsSinceEpoch, isDeleted: i.isDeleted,
+                        // 🔥 PRESERVE DELTA SNAPSHOTS
+                        purchaserSnapshot: i.purchaserSnapshot, 
+                        companySnapshot: i.companySnapshot,
                       );
                       ref.read(invoiceProvider.notifier).updateInvoice(updated);
                     });
@@ -653,7 +561,11 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
                     Navigator.pop(ctx);
                     _editDateTime(i.billDate, (newDate) {
                       final updated = Invoice(
-                        id: i.id, userId: i.userId, companyId: i.companyId, type: i.type, purchaserId: i.purchaserId, billNo: i.billNo, billDate: newDate, truckNo: i.truckNo, driverName: i.driverName, licNo: i.licNo, nos: i.nos, unit: i.unit, quantity: i.quantity, rate: i.rate, amount: i.amount, labourCharge: i.labourCharge, subTotal: i.subTotal, gstAmount: i.gstAmount, totalAmount: i.totalAmount, lastUpdated: DateTime.now().millisecondsSinceEpoch, isDeleted: i.isDeleted
+                        id: i.id, userId: i.userId, companyId: i.companyId, type: i.type, purchaserId: i.purchaserId, billNo: i.billNo, billDate: newDate, truckNo: i.truckNo, driverName: i.driverName, licNo: i.licNo, nos: i.nos, unit: i.unit, quantity: i.quantity, rate: i.rate, amount: i.amount, labourCharge: i.labourCharge, subTotal: i.subTotal, gstAmount: i.gstAmount, totalAmount: i.totalAmount, 
+                        lastUpdated: DateTime.now().millisecondsSinceEpoch, isDeleted: i.isDeleted,
+                        // 🔥 PRESERVE DELTA SNAPSHOTS
+                        purchaserSnapshot: i.purchaserSnapshot, 
+                        companySnapshot: i.companySnapshot,
                       );
                       ref.read(invoiceProvider.notifier).updateInvoice(updated);
                     });
@@ -689,7 +601,7 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
               children: [
                 const Icon(Icons.receipt_long_rounded, size: 14, color: Colors.blueAccent),
                 const SizedBox(width: 4),
-                Expanded(child: Text('Bill #${i.billNo}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.blueAccent), overflow: TextOverflow.ellipsis)),
+                Expanded(child: Text(displayBillName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.blueAccent), overflow: TextOverflow.ellipsis)),
               ],
             ),
             const SizedBox(height: 6),

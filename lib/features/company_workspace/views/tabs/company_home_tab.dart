@@ -1,19 +1,26 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart'; // 🔥 IMPORT ADDED FOR PC SWIPING
+import 'package:flutter/gestures.dart'; 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart'; 
 import 'dart:math' as math;
+import 'package:supabase_flutter/supabase_flutter.dart'; 
 
 import '../../../../models/purchaser_model.dart'; 
+import '../../../../models/invoice_model.dart'; 
+// import '../../../../models/payment_model.dart'; 
 import '../../providers/company_provider.dart';
 import '../../providers/invoice_provider.dart';
 import '../../providers/payment_provider.dart';
 import '../../providers/purchaser_provider.dart';
 import '../edit_company_screen.dart';
 import '../../../dashboard/global_dashboard_screen.dart'; 
-import '../account_detail_screen.dart'; 
 import '../../../../core/database/sync_engine.dart';
+
+// 🔥 ROUTING IMPORTS
+import '../editable_invoice_screen.dart';
+import '../editable_purchase_screen.dart';
+import '../account_detail_screen.dart';
 
 class CompanyHomeTab extends ConsumerStatefulWidget {
   final Function(int)? onNavigateTab; 
@@ -24,20 +31,20 @@ class CompanyHomeTab extends ConsumerStatefulWidget {
   ConsumerState<CompanyHomeTab> createState() => _CompanyHomeTabState();
 }
 
-class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
-  String _analyticsFilter = 'Both'; // Both, Sales, Purchase
+class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> with AutomaticKeepAliveClientMixin {
+  
+  @override
+  bool get wantKeepAlive => true;
+
+  String _analyticsFilter = 'Both';
 
   String formatAmount(double val) {
     final formatter = NumberFormat.decimalPattern('en_IN');
     return '${formatter.format(val.round())}/-';
   }
 
-  // --- 🔥 NEW: SYNC FUNCTION ---
   Future<void> _syncData() async {
-    // 1. Sync data with the cloud
     await SyncEngine.syncAll();
-    
-    // 2. Tell Riverpod to refresh the UI with the newly downloaded data
     ref.invalidate(invoiceProvider);
     ref.invalidate(paymentProvider);
     ref.invalidate(purchaserProvider);
@@ -45,20 +52,23 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); 
+
     final company = ref.watch(activeCompanyProvider);
     final allInvoices = ref.watch(invoiceProvider);
     final allPayments = ref.watch(paymentProvider);
     final allPurchasers = ref.watch(purchaserProvider);
     
-    // TODO: Replace this with your actual user provider to fetch the logged-in user's name
-    String userName = "Admin"; 
+    final currentUser = Supabase.instance.client.auth.currentUser;
+    final userName = currentUser?.userMetadata?['name'] 
+        ?? currentUser?.email?.split('@').first 
+        ?? "Admin"; 
 
     if (company == null) return const Center(child: Text('Loading...'));
 
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
     
-    // --- DETERMINE BUSINESS YEAR (APRIL 1 to MARCH 31) ---
     final int startYear = now.month >= 4 ? now.year : now.year - 1;
     final int endYear = startYear + 1;
     
@@ -67,7 +77,7 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
     
     final businessYearLabel = "Business Year : $startYear-${endYear.toString().substring(2)}";
 
-    // --- 1. KPI CALCULATION (Filtered by Business Year) ---
+    // --- 1. KPI CALCULATION ---
     double todaySales = 0.0;
     double todayPurchases = 0.0;
     double yearSales = 0.0;
@@ -78,8 +88,6 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
       if (_analyticsFilter == 'Purchase' && inv.type != 'purchase') continue;
 
       final invDate = DateTime.fromMillisecondsSinceEpoch(inv.billDate);
-      
-      // Skip if invoice is outside the current business year
       if (invDate.isBefore(businessStart) || invDate.isAfter(businessEnd)) continue;
 
       double amt = inv.totalAmount;
@@ -96,7 +104,7 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
     double todayNet = _analyticsFilter == 'Purchase' ? todayPurchases : (_analyticsFilter == 'Sales' ? todaySales : todaySales - todayPurchases);
     double yearNet = _analyticsFilter == 'Purchase' ? yearPurchases : (_analyticsFilter == 'Sales' ? yearSales : yearSales - yearPurchases);
 
-    // --- 2. BAR CHART CALCULATION (Current Business Year: Apr to Mar) ---
+    // --- 2. BAR CHART CALCULATION ---
     List<String> monthLabels = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'];
     List<double> monthlySales = List.filled(12, 0.0);
     List<double> monthlyPurchases = List.filled(12, 0.0);
@@ -104,43 +112,33 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
 
     for (var inv in allInvoices) {
       final date = DateTime.fromMillisecondsSinceEpoch(inv.billDate);
-      
       if (!date.isBefore(businessStart) && !date.isAfter(businessEnd)) {
-        // Map month to index: Apr (4) -> 0, May (5) -> 1, ..., Mar (3) -> 11
         final index = date.month >= 4 ? date.month - 4 : date.month + 8;
-        
         if (inv.type == 'sales') monthlySales[index] += inv.totalAmount;
         if (inv.type == 'purchase') monthlyPurchases[index] += inv.totalAmount;
-        
         maxChartValue = math.max(maxChartValue, monthlySales[index]);
         maxChartValue = math.max(maxChartValue, monthlyPurchases[index]);
       }
     }
 
-    // --- COLOR SCHEMES (SWAPPED AS REQUESTED) ---
-    // Top Receivables now gets the vibrant/teal scheme
     List<Color> debtorColors = [Colors.tealAccent.shade400, Colors.lightGreenAccent.shade400, Colors.cyanAccent.shade400, Colors.indigoAccent, Colors.purpleAccent];
-    // Top Performance now gets the multi-color accent scheme
     List<Color> perfColors = [Colors.blueAccent, Colors.pinkAccent, Colors.amber, Colors.greenAccent, Colors.deepPurpleAccent];
 
-    // --- 3. PIE CHART: TOP DEBTORS (Current Business Year) ---
-    Map<String, double> pieBalances = {};
-    for (var inv in allInvoices.where((i) => i.type == 'sales' && i.purchaserId != null)) {
-      final date = DateTime.fromMillisecondsSinceEpoch(inv.billDate);
-      if (!date.isBefore(businessStart) && !date.isAfter(businessEnd)) {
-        pieBalances[inv.purchaserId!] = (pieBalances[inv.purchaserId!] ?? 0) + inv.totalAmount;
+    // --- 3. PIE CHART: TOP DEBTORS (Outstanding Receivables - ALL TIME) ---
+    Map<String, double> debtorBalances = {};
+    for (var inv in allInvoices.where((i) => i.type == 'sales' && i.companyId == company.id && i.purchaserId != null)) {
+      // 🔥 Oustanding balance doesn't care about financial year, it's an all-time total
+      debtorBalances[inv.purchaserId!] = (debtorBalances[inv.purchaserId!] ?? 0.0) + inv.totalAmount;
+    }
+    for (var pay in allPayments.where((p) => p.type == 'received' && p.companyId == company.id)) {
+      if (debtorBalances.containsKey(pay.purchaserId)) {
+        debtorBalances[pay.purchaserId] = debtorBalances[pay.purchaserId]! - pay.amount;
       }
     }
-    for (var pay in allPayments.where((p) => p.type == 'received')) {
-      final date = DateTime.fromMillisecondsSinceEpoch(pay.date);
-      if (!date.isBefore(businessStart) && !date.isAfter(businessEnd)) {
-        pieBalances[pay.purchaserId] = (pieBalances[pay.purchaserId] ?? 0) - pay.amount;
-      }
-    }
-    var top5Debtors = pieBalances.entries.where((e) => e.value > 0).toList()..sort((a, b) => b.value.compareTo(a.value));
+    var top5Debtors = debtorBalances.entries.where((e) => e.value > 0.01).toList()..sort((a, b) => b.value.compareTo(a.value));
     top5Debtors = top5Debtors.take(5).toList();
 
-    // --- 4. PIE CHART: TOP PERFORMANCE (Sales within Business Year) ---
+    // --- 4. PIE CHART: TOP PERFORMANCE ---
     Map<String, double> performanceBalances = {};
     for (var inv in allInvoices.where((i) => i.type == 'sales' && i.purchaserId != null)) {
       final invDate = DateTime.fromMillisecondsSinceEpoch(inv.billDate);
@@ -151,35 +149,7 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
     var topPerformance = performanceBalances.entries.where((e) => e.value > 0).toList()..sort((a, b) => b.value.compareTo(a.value));
     topPerformance = topPerformance.take(5).toList();
 
-    // --- 5. ALL PARTIES CALCULATION (Current Business Year) ---
-    Map<String, double> balances = {};
-    for (var p in allPurchasers) { balances[p.id] = 0.0; }
-    for (var inv in allInvoices) {
-      if (inv.purchaserId == null) continue;
-      final date = DateTime.fromMillisecondsSinceEpoch(inv.billDate);
-      if (!date.isBefore(businessStart) && !date.isAfter(businessEnd)) {
-        double amt = inv.totalAmount;
-        balances[inv.purchaserId!] = (balances[inv.purchaserId!] ?? 0.0) + (inv.type == 'sales' ? amt : -amt);
-      }
-    }
-    for (var pay in allPayments) {
-      final date = DateTime.fromMillisecondsSinceEpoch(pay.date);
-      if (!date.isBefore(businessStart) && !date.isAfter(businessEnd)) {
-        double amt = pay.amount;
-        balances[pay.purchaserId] = (balances[pay.purchaserId] ?? 0.0) + (pay.type == 'received' ? -amt : amt);
-      }
-    }
-    
-    final allPartiesList = allPurchasers.toList();
-    allPartiesList.sort((a, b) {
-      double balA = (balances[a.id] ?? 0.0).abs();
-      double balB = (balances[b.id] ?? 0.0).abs();
-      if (balA < 0.01 && balB >= 0.01) return 1;
-      if (balB < 0.01 && balA >= 0.01) return -1;
-      return balB.compareTo(balA);
-    });
-
-    // --- 6. RECENT ACTIONS CALCULATION (Filtered to Business Year, Max 10) ---
+    // --- 5. LATEST ACTIONS CALCULATION ---
     List<Map<String, dynamic>> recentActions = [];
     for (var inv in allInvoices) {
       final invDate = DateTime.fromMillisecondsSinceEpoch(inv.billDate);
@@ -188,65 +158,86 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
           'type': inv.type == 'sales' ? 'Sale' : 'Purchase',
           'amount': inv.totalAmount,
           'date': inv.billDate,
+          'createdAt': inv.lastUpdated, 
           'purchaserId': inv.purchaserId,
           'icon': inv.type == 'sales' ? Icons.arrow_upward : Icons.arrow_downward,
           'color': inv.type == 'sales' ? Colors.blue : Colors.red,
+          'invoice': inv,
         });
       }
     }
     for (var pay in allPayments) {
       final payDate = DateTime.fromMillisecondsSinceEpoch(pay.date);
       if (!payDate.isBefore(businessStart) && !payDate.isAfter(businessEnd)) {
+        final dynamic dynamicPay = pay;
+        int payCreated = pay.date;
+        try { payCreated = dynamicPay.lastUpdated ?? pay.date; } catch (_) {}
+
         recentActions.add({
           'type': pay.type == 'received' ? 'Payment Received' : 'Payment Made',
           'amount': pay.amount,
           'date': pay.date,
+          'createdAt': payCreated, 
           'purchaserId': pay.purchaserId,
           'icon': Icons.payments_rounded,
           'color': pay.type == 'received' ? Colors.green : Colors.orange,
+          'payment': pay,
         });
       }
     }
-    recentActions.sort((a, b) => b['date'].compareTo(a['date']));
+    
+    // Sort by system creation log time
+    recentActions.sort((a, b) => b['createdAt'].compareTo(a['createdAt']));
     final topRecentActions = recentActions.take(10).toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FC),
-      // --- 🔥 NEW: WRAPPED BODY IN SCROLL CONFIGURATION & REFRESH INDICATOR ---
       body: ScrollConfiguration(
         behavior: ScrollConfiguration.of(context).copyWith(
-          dragDevices: {
-            PointerDeviceKind.touch,
-            PointerDeviceKind.mouse, // Allows pulling down with PC mouse
-            PointerDeviceKind.trackpad,
-          },
+          dragDevices: {PointerDeviceKind.touch, PointerDeviceKind.mouse, PointerDeviceKind.trackpad},
         ),
         child: RefreshIndicator(
-          onRefresh: _syncData, // Calls the sync logic
+          onRefresh: _syncData, 
           color: Colors.blueAccent,
           backgroundColor: Colors.white,
           child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(), // MUST BE HERE for pull-to-refresh
+            physics: const AlwaysScrollableScrollPhysics(), 
             padding: const EdgeInsets.all(16),
             children: [
-              // --- COMPANY PROFILE CARD ---
+              // --- COMPANY PROFILE CARD (Centered & Enlarged) ---
               Card(
-                elevation: 4,
+                elevation: 2,
                 shadowColor: Colors.black12,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 child: Padding(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      CircleAvatar(radius: 40, backgroundColor: Colors.blue.shade50, child: const Icon(Icons.business, size: 40, color: Colors.blueAccent)),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(color: Colors.blue.shade50, shape: BoxShape.circle),
+                        child: const Icon(Icons.business, size: 42, color: Colors.blueAccent),
+                      ),
                       const SizedBox(height: 16),
-                      Text(company.name.toUpperCase(), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 1.2, color: Color(0xFF203A43))),
+                      Text(
+                        company.name.toUpperCase(), 
+                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 0.5, color: Color(0xFF203A43)),
+                        textAlign: TextAlign.center,
+                      ),
                       const SizedBox(height: 4),
-                      Text('by: $userName', style: TextStyle(color: Colors.grey.shade600, fontSize: 14, fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 8),
-                      Text('${company.address1}, ${company.address2}', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
-                      Text('MO: ${company.mobileNumber}', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold, fontSize: 14)),
-                      const Divider(height: 30),
+                      Text('Operated by: $userName', style: TextStyle(color: Colors.blueGrey.shade400, fontSize: 14, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 12),
+                      Text(
+                        '${company.address1}, ${company.address2}', 
+                        style: TextStyle(color: Colors.grey.shade600, fontSize: 13), 
+                        textAlign: TextAlign.center,
+                        maxLines: 2, 
+                        overflow: TextOverflow.ellipsis
+                      ),
+                      const SizedBox(height: 4),
+                      Text('Ph: ${company.mobileNumber}', style: TextStyle(color: Colors.grey.shade800, fontWeight: FontWeight.bold, fontSize: 14)),
+                      const Divider(height: 32),
                       Row(
                         children: [
                           Expanded(
@@ -268,18 +259,18 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                                   ),
                                 );
                               },
-                              icon: const Icon(Icons.lock_outline, color: Colors.red, size: 18),
+                              icon: const Icon(Icons.lock_outline, color: Colors.red, size: 16),
                               label: const Text('Lock', style: TextStyle(color: Colors.red)),
-                              style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                              style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.redAccent), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton.icon(
                               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EditCompanyScreen(company: company))),
-                              icon: const Icon(Icons.security, size: 18),
+                              icon: const Icon(Icons.settings, size: 16),
                               label: const Text('Settings'),
-                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF203A43), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF203A43), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                             ),
                           ),
                         ],
@@ -289,6 +280,31 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                 ),
               ),
               
+              const SizedBox(height: 24),
+
+              // --- QUICK ACCESS BUTTONS (Responsive & Shrunken) ---
+              const Text('Quick Access', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
+              const SizedBox(height: 12),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  bool isWide = constraints.maxWidth > 500; 
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _buildResponsiveShortcutBtn(Icons.people, 'Parties', Colors.teal, () => widget.onNavigateTab?.call(1), isWide), 
+                      const SizedBox(width: 6),
+                      _buildResponsiveShortcutBtn(Icons.point_of_sale, 'Sales', Colors.indigoAccent, () => widget.onNavigateTab?.call(2), isWide), 
+                      const SizedBox(width: 6),
+                      _buildResponsiveShortcutBtn(Icons.shopping_cart, 'Purchase', Colors.redAccent, () => widget.onNavigateTab?.call(3), isWide),
+                      const SizedBox(width: 6),
+                      _buildResponsiveShortcutBtn(Icons.book, 'Ledger', Colors.blueGrey.shade700, () => widget.onNavigateTab?.call(4), isWide),
+                      const SizedBox(width: 6),
+                      _buildResponsiveShortcutBtn(Icons.account_balance_wallet, 'Account', Colors.teal.shade700, () => widget.onNavigateTab?.call(5), isWide),const SizedBox(width: 6),
+                    ],
+                  );
+                }
+              ),
+
               const SizedBox(height: 32),
               
               // --- KPI HEADER & SNAPSHOT ---
@@ -506,15 +522,16 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                               sectionsSpace: 4,
                               centerSpaceRadius: 25,
                               sections: List.generate(top5Debtors.length, (i) {
+                                final safeColor = debtorColors[i % debtorColors.length];
                                 return PieChartSectionData(
-                                  color: debtorColors[i],
+                                  color: safeColor,
                                   value: top5Debtors[i].value,
                                   title: '', 
                                   radius: 45,
                                   badgeWidget: Container(
                                     padding: const EdgeInsets.all(4),
                                     decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)]),
-                                    child: Text('${i+1}', style: TextStyle(fontWeight: FontWeight.bold, color: debtorColors[i], fontSize: 10)),
+                                    child: Text('${i+1}', style: TextStyle(fontWeight: FontWeight.bold, color: safeColor, fontSize: 10)),
                                   ),
                                   badgePositionPercentageOffset: 1.1,
                                 );
@@ -527,12 +544,13 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: List.generate(top5Debtors.length, (i) {
+                              final safeColor = debtorColors[i % debtorColors.length];
                               final purchaserName = allPurchasers.firstWhere((p) => p.id == top5Debtors[i].key, orElse: () => Purchaser(id: '', userId: '', name: 'Unknown', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0)).name;
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 12.0),
                                 child: Row(
                                   children: [
-                                    Container(width: 12, height: 12, decoration: BoxDecoration(color: debtorColors[i], shape: BoxShape.circle)),
+                                    Container(width: 12, height: 12, decoration: BoxDecoration(color: safeColor, shape: BoxShape.circle)),
                                     const SizedBox(width: 8),
                                     Expanded(child: Text(purchaserName, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade800), overflow: TextOverflow.ellipsis)),
                                     Text('₹${formatAmount(top5Debtors[i].value)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
@@ -549,62 +567,8 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                 const SizedBox(height: 32),
               ],
 
-              // --- ALL PARTIES ---
-              const Text('Parties (Balances As Of Current Year)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
-              const SizedBox(height: 12),
-              HoverableDataCard(
-                gradientColors: [Colors.purple.shade700, Colors.deepPurple.shade400],
-                child: allPartiesList.isEmpty 
-                  ? const Padding(padding: EdgeInsets.all(24.0), child: Center(child: Text('No parties added yet.', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))))
-                  : Column(
-                      children: allPartiesList.map((purchaser) {
-                        final bal = balances[purchaser.id] ?? 0.0;
-                        final isClear = bal.abs() < 0.01;
-                        final isOwedToUs = bal > 0;
-                        
-                        return Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (context) => AccountDetailScreen(purchaser: purchaser)),
-                              );
-                            },
-                            child: ListTile(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                              leading: CircleAvatar(
-                                backgroundColor: Colors.white24, 
-                                child: Icon(
-                                  isClear ? Icons.check_circle : (isOwedToUs ? Icons.call_received : Icons.call_made), 
-                                  color: isClear ? Colors.greenAccent : Colors.white, 
-                                  size: 18
-                                )
-                              ),
-                              title: Text(purchaser.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                              subtitle: Text(
-                                isClear ? 'No pending balance' : (isOwedToUs ? 'They owe us' : 'We owe them'), 
-                                style: const TextStyle(color: Colors.white70, fontSize: 12)
-                              ),
-                              trailing: Text(
-                                isClear ? 'Clear' : '₹${formatAmount(bal.abs())}', 
-                                style: TextStyle(
-                                  color: isClear ? Colors.greenAccent : Colors.white, 
-                                  fontWeight: FontWeight.w900, 
-                                  fontSize: 16
-                                )
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-              ),
-              
-              const SizedBox(height: 32),
-
               // --- LATEST ACTIONS ---
-              const Text('Latest Actions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
+              const Text('Latest Activity Log', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
               const SizedBox(height: 12),
               HoverableDataCard(
                 gradientColors: [Colors.blue.shade800, Colors.lightBlue.shade500],
@@ -619,32 +583,44 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
                           title: Text(purchaser.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
                           subtitle: Text('${action['type']} • ${DateFormat('dd MMM, hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(action['date']))}', style: const TextStyle(color: Colors.white70, fontSize: 11)),
                           trailing: Text('₹${formatAmount(action['amount'])}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14)),
+                          onTap: () {
+                            if (action['invoice'] != null) {
+                              final inv = action['invoice'] as Invoice;
+                              if (inv.type == 'sales') {
+                                Navigator.push(context, MaterialPageRoute(builder: (_) => EditableInvoiceScreen(invoice: inv, company: company, purchaser: purchaser)));
+                              } else {
+                                Navigator.push(context, MaterialPageRoute(builder: (_) => EditablePurchaseScreen(invoice: inv, company: company, purchaser: purchaser)));
+                              }
+                            } else if (action['payment'] != null) {
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => AccountDetailScreen(purchaser: purchaser)));
+                            }
+                          },
                         );
                       }).toList(),
                     ),
               ),
-              
-              const SizedBox(height: 32),
-
-              // --- SHORTCUT LINKS ---
-              const Text('Quick Access', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF203A43))),
-              const SizedBox(height: 12),
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                childAspectRatio: 3.8, 
-                children: [
-                  _buildShortcutBtn(Icons.people, 'Parties', Colors.teal, () => widget.onNavigateTab?.call(1)), 
-                  _buildShortcutBtn(Icons.point_of_sale, 'Sales', Colors.blueAccent, () => widget.onNavigateTab?.call(2)), 
-                  _buildShortcutBtn(Icons.shopping_cart, 'Purchase', Colors.pinkAccent, () => widget.onNavigateTab?.call(3)),
-                  _buildShortcutBtn(Icons.book, 'Ledger', Colors.deepPurpleAccent, () => widget.onNavigateTab?.call(4)),
-                  _buildShortcutBtn(Icons.account_balance_wallet, 'Account', Colors.orangeAccent, () => widget.onNavigateTab?.call(5)),
-                ],
-              ),
               const SizedBox(height: 80),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- RESPONSIVE SHORTCUT BUTTONS ---
+  Widget _buildResponsiveShortcutBtn(IconData icon, String label, Color color, VoidCallback onTap, bool isWide) {
+    return Expanded(
+      child: HoverableShortcutCard(
+        color: color,
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: isWide ? 10 : 8, horizontal: 2), 
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: Colors.white, size: isWide ? 20 : 16), 
+              SizedBox(height: isWide ? 6 : 4),
+              Text(label, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: isWide ? 11 : 9), maxLines: 1, overflow: TextOverflow.ellipsis), 
             ],
           ),
         ),
@@ -681,21 +657,6 @@ class _CompanyHomeTabState extends ConsumerState<CompanyHomeTab> {
             Text(dateLabel, style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildShortcutBtn(IconData icon, String label, Color color, VoidCallback onTap) {
-    return HoverableShortcutCard(
-      color: color,
-      onTap: onTap,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: Colors.white, size: 18), 
-          const SizedBox(width: 8),
-          Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)), 
-        ],
       ),
     );
   }

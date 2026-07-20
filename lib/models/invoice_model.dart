@@ -1,3 +1,5 @@
+import 'dart:convert'; // 🔥 Required for jsonEncode and jsonDecode
+
 class Invoice {
   final String id;
   final String userId;
@@ -20,6 +22,8 @@ class Invoice {
   final double totalAmount;
   final int lastUpdated;
   final int isDeleted; // Changed to int to match SQLite and other models
+  final Map<String, dynamic>? purchaserSnapshot;
+  final Map<String, dynamic>? companySnapshot;
 
   Invoice({
     required this.id,
@@ -43,6 +47,8 @@ class Invoice {
     required this.totalAmount,
     required this.lastUpdated,
     this.isDeleted = 0,
+    this.purchaserSnapshot,
+    this.companySnapshot,
   });
 
   // Convert an Invoice into a Map to store in SQLite
@@ -69,6 +75,8 @@ class Invoice {
       'totalAmount': totalAmount,     // Updated to camelCase
       'lastUpdated': lastUpdated,     // Updated to camelCase
       'isDeleted': isDeleted,         // Updated to camelCase
+      'purchaser_snapshot': purchaserSnapshot != null ? jsonEncode(purchaserSnapshot) : null,
+      'company_snapshot': companySnapshot != null ? jsonEncode(companySnapshot) : null,
     };
   }
 
@@ -96,6 +104,17 @@ class Invoice {
       totalAmount: map['totalAmount']?.toDouble() ?? 0.0,   // Updated
       lastUpdated: map['lastUpdated'],                      // Updated
       isDeleted: map['isDeleted'] ?? 0,                     // Updated
+      purchaserSnapshot: map['purchaser_snapshot'] != null 
+          ? (map['purchaser_snapshot'] is String 
+              ? jsonDecode(map['purchaser_snapshot']) 
+              : map['purchaser_snapshot']) 
+          : null,
+          
+      companySnapshot: map['company_snapshot'] != null 
+          ? (map['company_snapshot'] is String 
+              ? jsonDecode(map['company_snapshot']) 
+              : map['company_snapshot']) 
+          : null,
     );
   }
 }

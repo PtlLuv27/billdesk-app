@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart'; // 🔥 ADDED FOR PC SWIPING
+import 'package:flutter/gestures.dart'; 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart'; 
@@ -10,7 +10,7 @@ import '../../providers/purchaser_provider.dart';
 import '../../providers/invoice_provider.dart';
 import '../editable_invoice_screen.dart';
 import '../../../authentication/providers/auth_provider.dart';
-import '../../../../core/database/sync_engine.dart'; // 🔥 ADDED FOR CLOUD SYNC
+import '../../../../core/database/sync_engine.dart'; 
 
 class SalesTab extends ConsumerStatefulWidget {
   const SalesTab({super.key});
@@ -19,16 +19,18 @@ class SalesTab extends ConsumerStatefulWidget {
   ConsumerState<SalesTab> createState() => _SalesTabState();
 }
 
-class _SalesTabState extends ConsumerState<SalesTab> {
+class _SalesTabState extends ConsumerState<SalesTab> with AutomaticKeepAliveClientMixin {
+  
+  @override
+  bool get wantKeepAlive => true;
+
   final _formKey = GlobalKey<FormState>();
   
   Purchaser? _selectedPurchaser;
   DateTime _billDate = DateTime.now();
   
-  // --- 🔥 NEW: CONTROLLER TO FIX DROPDOWN BUGS ---
   final _partySearchController = TextEditingController();
 
-  // --- PARTY FIELDS CONTROLLERS ---
   final _partyAddressCtrl = TextEditingController();
   final _partyAddress2Ctrl = TextEditingController();
   final _partyParticularsCtrl = TextEditingController();
@@ -39,7 +41,6 @@ class _SalesTabState extends ConsumerState<SalesTab> {
   final _partyCgstCtrl = TextEditingController();
   final _partyIgstCtrl = TextEditingController();
 
-  // --- INVOICE FIELDS CONTROLLERS ---
   final _billNoController = TextEditingController();
   final _truckNoController = TextEditingController();
   final _driverNameController = TextEditingController();
@@ -61,9 +62,15 @@ class _SalesTabState extends ConsumerState<SalesTab> {
   
   double _totalAmount = 0.0;
 
+  // 🔥 Format for Final Total (Rounded to whole number + '/-')
   String formatIndianCurrency(double val) {
     final formatter = NumberFormat.decimalPattern('en_IN');
-    return '${formatter.format(val)}/-';
+    return '${formatter.format(val.round())}/-';
+  }
+
+  // 🔥 NEW: Format for Subtotals & GST (Preserves decimals, adds commas)
+  String formatWithCommas(double val) {
+    return NumberFormat.currency(locale: 'en_IN', symbol: '', decimalDigits: 2).format(val);
   }
 
   double _parseNumber(String val) {
@@ -73,7 +80,7 @@ class _SalesTabState extends ConsumerState<SalesTab> {
 
   @override
   void dispose() {
-    _partySearchController.dispose(); // 🔥 DISPOSE NEW CONTROLLER
+    _partySearchController.dispose(); 
     _partyAddressCtrl.dispose();
     _partyAddress2Ctrl.dispose();
     _partyParticularsCtrl.dispose();
@@ -97,7 +104,6 @@ class _SalesTabState extends ConsumerState<SalesTab> {
     super.dispose();
   }
 
-  // --- 🔥 NEW: SYNC FUNCTION ---
   Future<void> _syncData() async {
     await SyncEngine.syncAll();
     ref.invalidate(invoiceProvider);
@@ -106,12 +112,15 @@ class _SalesTabState extends ConsumerState<SalesTab> {
 
   void _calculateTotals() {
     setState(() {
-      double qty = _parseNumber(_quantityController.text);
       double rate = _parseNumber(_rateController.text);
       double labour = _parseNumber(_labourController.text);
       
-      _amount = (rate * qty).roundToDouble();
-      _subTotal = (_amount + labour).roundToDouble();
+      double multiplier = _selectedUnit == 'NOS' 
+          ? _parseNumber(_nosController.text) 
+          : _parseNumber(_quantityController.text);
+      
+      _amount = (rate * multiplier);
+      _subTotal = (_amount + labour);
       
       if (_selectedPurchaser != null) {
         double sgst = _parseNumber(_partySgstCtrl.text);
@@ -122,18 +131,13 @@ class _SalesTabState extends ConsumerState<SalesTab> {
         _cgstAmount = (_subTotal * (cgst / 100));
         _igstAmount = (_subTotal * (igst / 100));
         _gstAmount = _sgstAmount + _cgstAmount + _igstAmount;
-
-        _sgstAmount = _sgstAmount.roundToDouble();
-        _cgstAmount = _cgstAmount.roundToDouble();
-        _igstAmount = _igstAmount.roundToDouble();
-        _gstAmount = _gstAmount.roundToDouble();
       } else {
         _sgstAmount = 0.0;
         _cgstAmount = 0.0;
         _igstAmount = 0.0;
         _gstAmount = 0.0;
       }
-      _totalAmount = (_subTotal + _gstAmount).roundToDouble();
+      _totalAmount = (_subTotal + _gstAmount);
     });
   }
 
@@ -173,32 +177,36 @@ class _SalesTabState extends ConsumerState<SalesTab> {
       final activeCompany = ref.read(activeCompanyProvider);
       if (activeCompany == null) return;
 
+      final safePurchaser = _selectedPurchaser!;
+
       final combinedParticulars = [
         _partyParticularsCtrl.text.trim(),
         ..._extraParticularCtrls.map((c) => c.text.trim())
       ].where((e) => e.isNotEmpty).join(', ');
 
-      final tempPurchaserSnapshot = Purchaser(
-        id: _selectedPurchaser!.id,
-        userId: _selectedPurchaser!.userId,
-        name: _selectedPurchaser!.name,
-        address1: _partyAddressCtrl.text.trim(), 
-        address2: _partyAddress2Ctrl.text.trim(),
-        particulars: combinedParticulars, 
-        gstin: _partyGstinCtrl.text.trim(),      
-        hsnNo: _partyHsnNoCtrl.text.trim(),
-        sgstRate: _parseNumber(_partySgstCtrl.text), 
-        cgstRate: _parseNumber(_partyCgstCtrl.text), 
-        igstRate: _parseNumber(_partyIgstCtrl.text), 
-        lastUpdated: _selectedPurchaser!.lastUpdated,
-      );
+      final purchaserDelta = <String, dynamic>{};
+      
+      if (_partyAddressCtrl.text.trim() != safePurchaser.address1) purchaserDelta['address1'] = _partyAddressCtrl.text.trim();
+      if (_partyAddress2Ctrl.text.trim() != safePurchaser.address2) purchaserDelta['address2'] = _partyAddress2Ctrl.text.trim();
+      if (_partyGstinCtrl.text.trim() != safePurchaser.gstin) purchaserDelta['gstin'] = _partyGstinCtrl.text.trim();
+      if (combinedParticulars != safePurchaser.particulars) purchaserDelta['particulars'] = combinedParticulars;
+      if (_partyHsnNoCtrl.text.trim() != safePurchaser.hsnNo) purchaserDelta['hsnNo'] = _partyHsnNoCtrl.text.trim();
+
+      double sgst = double.tryParse(_partySgstCtrl.text) ?? 0.0;
+      if (sgst != safePurchaser.sgstRate) purchaserDelta['sgstRate'] = sgst;
+      
+      double cgst = double.tryParse(_partyCgstCtrl.text) ?? 0.0;
+      if (cgst != safePurchaser.cgstRate) purchaserDelta['cgstRate'] = cgst;
+      
+      double igst = double.tryParse(_partyIgstCtrl.text) ?? 0.0;
+      if (igst != safePurchaser.igstRate) purchaserDelta['igstRate'] = igst;
 
       final invoice = Invoice(
         id: const Uuid().v4(),
         userId: currentUserId, 
         companyId: activeCompany.id,
         type: 'sales',
-        purchaserId: _selectedPurchaser!.id, 
+        purchaserId: safePurchaser.id, 
         billNo: _billNoController.text.trim(),
         billDate: _billDate.millisecondsSinceEpoch,
         truckNo: _truckNoController.text.trim(),
@@ -214,6 +222,8 @@ class _SalesTabState extends ConsumerState<SalesTab> {
         gstAmount: _gstAmount,
         totalAmount: _totalAmount,
         lastUpdated: DateTime.now().millisecondsSinceEpoch,
+        purchaserSnapshot: purchaserDelta.isNotEmpty ? purchaserDelta : null,
+        companySnapshot: null,
       );
 
       await ref.read(invoiceProvider.notifier).addInvoice(invoice);
@@ -227,7 +237,7 @@ class _SalesTabState extends ConsumerState<SalesTab> {
             builder: (context) => EditableInvoiceScreen(
               invoice: invoice, 
               company: activeCompany, 
-              purchaser: tempPurchaserSnapshot, 
+              purchaser: safePurchaser, 
             ),
           ),
         );
@@ -235,7 +245,7 @@ class _SalesTabState extends ConsumerState<SalesTab> {
         _formKey.currentState!.reset();
         setState(() {
           _selectedPurchaser = null;
-          _partySearchController.clear(); // 🔥 CLEAR SEARCH TEXT ON SAVE
+          _partySearchController.clear(); 
           _partyAddressCtrl.clear();
           _partyAddress2Ctrl.clear();
           _partyParticularsCtrl.clear();
@@ -276,12 +286,12 @@ class _SalesTabState extends ConsumerState<SalesTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); 
     final purchasers = ref.watch(purchaserProvider);
     final sortedPurchasers = purchasers.toList()..sort((a, b) => a.name.compareTo(b.name));
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FC),
-      // --- 🔥 WRAPPED IN SCROLL CONFIG & REFRESH INDICATOR ---
       body: ScrollConfiguration(
         behavior: ScrollConfiguration.of(context).copyWith(
           dragDevices: {
@@ -297,7 +307,7 @@ class _SalesTabState extends ConsumerState<SalesTab> {
           child: Form(
             key: _formKey,
             child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(), // MUST BE HERE for pull-to-refresh
+              physics: const AlwaysScrollableScrollPhysics(), 
               padding: const EdgeInsets.all(16.0),
               children: [
                 const Text('Create Sales Invoice', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF203A43))),
@@ -324,7 +334,7 @@ class _SalesTabState extends ConsumerState<SalesTab> {
                 ),
                 const SizedBox(height: 12),
                 
-                // --- PARTY DROPDOWN (BUG FIXED) ---
+                // --- PARTY DROPDOWN ---
                 LayoutBuilder(
                   builder: (context, constraints) {
                     return DropdownMenu<Purchaser>(
@@ -332,8 +342,6 @@ class _SalesTabState extends ConsumerState<SalesTab> {
                       expandedInsets: EdgeInsets.zero, 
                       enableFilter: true, 
                       requestFocusOnTap: true,
-                      
-                      // 🔥 THESE TWO LINES FIX THE "WRONG SELECTION" & "DISAPPEARING TEXT" BUGS
                       controller: _partySearchController,
                       initialSelection: _selectedPurchaser, 
                       
@@ -503,28 +511,6 @@ class _SalesTabState extends ConsumerState<SalesTab> {
                 ),
                 const SizedBox(height: 12),
 
-                // --- DRIVER NAME & LIC NO ---
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _driverNameController, 
-                        decoration: _customInputDeco('Driver Name'), 
-                        textInputAction: TextInputAction.next
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _licNoController, 
-                        decoration: _customInputDeco('Lic No.'), 
-                        textInputAction: TextInputAction.next
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
                 // --- INVOICE MATH ITEMS ---
                 Row(
                   children: [
@@ -583,7 +569,29 @@ class _SalesTabState extends ConsumerState<SalesTab> {
                   textInputAction: TextInputAction.done,
                   onChanged: (_) => _calculateTotals(),
                 ),
-                
+
+                const SizedBox(height: 12),
+
+                // --- DRIVER NAME & LIC NO ---
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _driverNameController, 
+                        decoration: _customInputDeco('Driver Name'), 
+                        textInputAction: TextInputAction.next
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _licNoController, 
+                        decoration: _customInputDeco('Lic No.'), 
+                        textInputAction: TextInputAction.next
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 24),
                 
                 // --- FINAL SUMMARY BOX ---
@@ -596,21 +604,23 @@ class _SalesTabState extends ConsumerState<SalesTab> {
                   ),
                   child: Column(
                     children: [
-                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('Amount:', style: TextStyle(color: Colors.blueGrey.shade700, fontWeight: FontWeight.w600)), Text('₹${formatIndianCurrency(_amount)}', style: const TextStyle(fontWeight: FontWeight.bold))]),
+                      // 🔥 UPDATED: Added formatWithCommas to these intermediate lines
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('Amount:', style: TextStyle(color: Colors.blueGrey.shade700, fontWeight: FontWeight.w600)), Text('₹${formatWithCommas(_amount)}', style: const TextStyle(fontWeight: FontWeight.bold))]),
                       const SizedBox(height: 6),
-                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('Sub Total:', style: TextStyle(color: Colors.blueGrey.shade700, fontWeight: FontWeight.w600)), Text('₹${formatIndianCurrency(_subTotal)}', style: const TextStyle(fontWeight: FontWeight.bold))]),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('Sub Total:', style: TextStyle(color: Colors.blueGrey.shade700, fontWeight: FontWeight.w600)), Text('₹${formatWithCommas(_subTotal)}', style: const TextStyle(fontWeight: FontWeight.bold))]),
                       
                       const SizedBox(height: 12),
-                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('CGST (${_partyCgstCtrl.text.isEmpty ? "0" : _partyCgstCtrl.text}%):', style: TextStyle(color: Colors.grey.shade600)), Text('₹${formatIndianCurrency(_cgstAmount)}', style: TextStyle(color: Colors.grey.shade600))]),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('CGST (${_partyCgstCtrl.text.isEmpty ? "0" : _partyCgstCtrl.text}%):', style: TextStyle(color: Colors.grey.shade600)), Text('₹${formatWithCommas(_cgstAmount)}', style: TextStyle(color: Colors.grey.shade600))]),
                       const SizedBox(height: 4),
-                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('SGST (${_partySgstCtrl.text.isEmpty ? "0" : _partySgstCtrl.text}%):', style: TextStyle(color: Colors.grey.shade600)), Text('₹${formatIndianCurrency(_sgstAmount)}', style: TextStyle(color: Colors.grey.shade600))]),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('SGST (${_partySgstCtrl.text.isEmpty ? "0" : _partySgstCtrl.text}%):', style: TextStyle(color: Colors.grey.shade600)), Text('₹${formatWithCommas(_sgstAmount)}', style: TextStyle(color: Colors.grey.shade600))]),
                       const SizedBox(height: 4),
-                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('IGST (${_partyIgstCtrl.text.isEmpty ? "0" : _partyIgstCtrl.text}%):', style: TextStyle(color: Colors.grey.shade600)), Text('₹${formatIndianCurrency(_igstAmount)}', style: TextStyle(color: Colors.grey.shade600))]),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('IGST (${_partyIgstCtrl.text.isEmpty ? "0" : _partyIgstCtrl.text}%):', style: TextStyle(color: Colors.grey.shade600)), Text('₹${formatWithCommas(_igstAmount)}', style: TextStyle(color: Colors.grey.shade600))]),
                       
                       const Divider(height: 24, thickness: 1.5),
                       Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                         const Text('Total Amount:', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Color(0xFF203A43))), 
-                        Text('₹${formatIndianCurrency(_totalAmount)}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 22, color: Colors.blueAccent))
+                        // Final total stays rounded to whole numbers per accounting standard
+                        Text(formatIndianCurrency(_totalAmount), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 22, color: Colors.blueAccent))
                       ]),
                     ],
                   ),

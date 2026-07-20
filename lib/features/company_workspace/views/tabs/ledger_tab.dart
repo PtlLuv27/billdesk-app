@@ -16,9 +16,11 @@ class LedgerDateRangeNotifier extends Notifier<DateTimeRange?> {
   @override
   DateTimeRange? build() {
     final now = DateTime.now();
-    final firstDay = DateTime(now.year, now.month, 1);
-    final lastDay = DateTime(now.year, now.month + 1, 0); 
-    return DateTimeRange(start: firstDay, end: lastDay);
+    int startYear = now.month < 4 ? now.year - 1 : now.year;
+    return DateTimeRange(
+      start: DateTime(startYear, 4, 1),
+      end: DateTime(startYear + 1, 3, 31, 23, 59, 59),
+    );
   }
 
   void setDateRange(DateTimeRange? range) {
@@ -43,8 +45,10 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
   String? _selectedPurchaserId; 
   bool _isNewestFirst = true;
 
+  // 🔥 UPDATED: Visually rounds to whole number and adds "/-" to match invoice style perfectly
   String formatAmount(double val) {
-    return NumberFormat.currency(locale: 'en_IN', symbol: '', decimalDigits: 2).format(val);
+    final formatter = NumberFormat.decimalPattern('en_IN');
+    return '${formatter.format(val.round())}/-';
   }
 
   Future<void> _syncData() async {
@@ -56,10 +60,10 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
   List<Invoice> _getFilteredInvoices(List<Invoice> allInvoices, DateTimeRange? dateRange) {
     return allInvoices.where((invoice) {
       if (dateRange != null) {
-        final billDate = DateTime.fromMillisecondsSinceEpoch(invoice.billDate);
-        final start = DateTime(dateRange.start.year, dateRange.start.month, dateRange.start.day);
-        final end = DateTime(dateRange.end.year, dateRange.end.month, dateRange.end.day, 23, 59, 59);
-        if (billDate.isBefore(start) || billDate.isAfter(end)) return false;
+        if (invoice.billDate < dateRange.start.millisecondsSinceEpoch || 
+            invoice.billDate > dateRange.end.millisecondsSinceEpoch) {
+          return false;
+        }
       }
       
       if (_typeFilter == 'Sales Only' && invoice.type != 'sales') return false;
@@ -90,9 +94,15 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
         orElse: () => Purchaser(id: '', userId: '', name: '', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0)
       );
 
-      double sgstAmt = (invoice.subTotal * (purchaser.sgstRate) / 100).roundToDouble();
-      double cgstAmt = (invoice.subTotal * (purchaser.cgstRate) / 100).roundToDouble();
-      double igstAmt = (invoice.subTotal * (purchaser.igstRate) / 100).roundToDouble();
+      final pSnap = invoice.purchaserSnapshot ?? {};
+      double sgstRate = (pSnap['sgstRate'] ?? purchaser.sgstRate).toDouble();
+      double cgstRate = (pSnap['cgstRate'] ?? purchaser.cgstRate).toDouble();
+      double igstRate = (pSnap['igstRate'] ?? purchaser.igstRate).toDouble();
+
+      // 🔥 EXACT MATH: Removed .roundToDouble() 
+      double sgstAmt = (invoice.subTotal * (sgstRate) / 100);
+      double cgstAmt = (invoice.subTotal * (cgstRate) / 100);
+      double igstAmt = (invoice.subTotal * (igstRate) / 100);
 
       totalSgst += sgstAmt * sign;
       totalCgst += cgstAmt * sign;
@@ -125,7 +135,10 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
     );
     
     if (picked != null) {
-      ref.read(ledgerDateRangeProvider.notifier).setDateRange(picked);
+      ref.read(ledgerDateRangeProvider.notifier).setDateRange(DateTimeRange(
+        start: picked.start,
+        end: DateTime(picked.end.year, picked.end.month, picked.end.day, 23, 59, 59),
+      ));
     }
   }
 
@@ -167,6 +180,8 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
                   lastUpdated: DateTime.now().millisecondsSinceEpoch,
                   billNo: editCtrl.text.trim(),
                   isDeleted: invoice.isDeleted,
+                  purchaserSnapshot: invoice.purchaserSnapshot,
+                  companySnapshot: invoice.companySnapshot,
                 );
                 
                 await ref.read(invoiceProvider.notifier).updateInvoice(updatedInvoice);
@@ -196,40 +211,32 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
   }
 
   Widget _buildDashboardMetrics(double balance, double sgst, double cgst, double igst, DateTimeRange? currentDates) {
-    final netGst = sgst + cgst + igst;
-    
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Column(
-        children: [
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  flex: 2, 
-                  child: _buildMainBalanceCard(balance),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 1, 
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(child: _buildMiniGstCard('SGST', sgst, currentDates)),
-                      const SizedBox(height: 6),
-                      Expanded(child: _buildMiniGstCard('CGST', cgst, currentDates)),
-                      const SizedBox(height: 6),
-                      Expanded(child: _buildMiniGstCard('IGST', igst, currentDates)),
-                    ],
-                  ),
-                ),
-              ],
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              flex: 2, 
+              child: _buildMainBalanceCard(balance),
             ),
-          ),
-          const SizedBox(height: 8),
-          _buildNetGstCard(netGst, currentDates),
-        ],
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 1, 
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(child: _buildMiniGstCard('SGST', sgst, currentDates)),
+                  const SizedBox(height: 6),
+                  Expanded(child: _buildMiniGstCard('CGST', cgst, currentDates)),
+                  const SizedBox(height: 6),
+                  Expanded(child: _buildMiniGstCard('IGST', igst, currentDates)),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -309,38 +316,6 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
     );
   }
 
-  Widget _buildNetGstCard(double amount, DateTimeRange? currentDates) {
-    final isPositive = amount >= 0;
-    final valColor = isPositive ? Colors.indigo.shade700 : Colors.red.shade700;
-
-    return Material(
-      color: Colors.indigo.shade50,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () {
-          Navigator.push(context, MaterialPageRoute(builder: (context) => GstDetailScreen(gstType: 'TOTAL', dateRange: currentDates, initialTypeFilter: _typeFilter)));
-        },
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.indigo.shade200),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center, 
-            children: [
-              Text('TOTAL NET GST : ', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Colors.indigo.shade400, letterSpacing: 1.0)),
-              const SizedBox(width: 8),
-              Text('${isPositive ? '' : '-'}₹${formatAmount(amount.abs())}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: valColor)),
-            ]
-          )
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final allInvoices = ref.watch(invoiceProvider);
@@ -348,7 +323,6 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
     
     final dateRange = ref.watch(ledgerDateRangeProvider);
     
-    // 🔥 FIX: Now shows ALL invoices, including manuals and those without formal bill numbers
     final allFilteredInvoices = _getFilteredInvoices(allInvoices, dateRange);
     
     final netMetrics = _calculateNetBalances(allFilteredInvoices, allPurchasers);
@@ -491,7 +465,6 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
                           final invoice = sortedInvoices[index];
                           final isSale = invoice.type == 'sales';
                           
-                          // 🔥 FIX UI: If it is a manual entry or has no bill number, show a cleaner label.
                           final bool isManual = invoice.billNo.trim().toUpperCase() == 'MANUAL' || invoice.billNo.trim().isEmpty;
                           final String displayBillName = isManual ? 'Manual Entry' : 'Bill #${invoice.billNo}';
 
@@ -500,6 +473,9 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
                             orElse: () => Purchaser(id: '', userId: '', name: 'Unknown Party', address1: '', address2: '', particulars: '', gstin: '', hsnNo: '', sgstRate: 0, cgstRate: 0, igstRate: 0, lastUpdated: 0)
                           );
                           
+                          final pSnap = invoice.purchaserSnapshot ?? {};
+                          final String displayPartyName = pSnap['name'] ?? purchaser.name;
+
                           return InkWell(
                             onTap: () {
                               final company = ref.read(activeCompanyProvider);
@@ -580,7 +556,7 @@ class _LedgerTabState extends ConsumerState<LedgerTab> {
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
-                                          purchaser.name, 
+                                          displayPartyName, 
                                           style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,

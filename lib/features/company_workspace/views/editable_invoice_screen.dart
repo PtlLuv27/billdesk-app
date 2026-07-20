@@ -5,8 +5,6 @@ import 'package:printing/printing.dart';
 import '../../../../models/invoice_model.dart';
 import '../../../../models/company_model.dart';
 import '../../../../models/purchaser_model.dart';
-import '../providers/company_provider.dart';
-import '../providers/purchaser_provider.dart';
 import '../providers/invoice_provider.dart';
 import '../../../../core/utils/pdf_generator.dart';
 import '../../../../core/utils/number_to_words.dart';
@@ -28,74 +26,49 @@ class EditableInvoiceScreen extends ConsumerStatefulWidget {
 }
 
 class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
-  late TextEditingController _billNoCtrl;
-  late TextEditingController _truckNoCtrl;
-  late TextEditingController _driverNameCtrl;
-  late TextEditingController _licNoCtrl;
-  late TextEditingController _rateCtrl;
-  late TextEditingController _qtyCtrl;
-  late TextEditingController _nosCtrl; 
-  late TextEditingController _labourCtrl;
-
-  late TextEditingController _purNameCtrl;
-  late TextEditingController _purAdd1Ctrl;
-  late TextEditingController _purAdd2Ctrl;
-  late TextEditingController _gstinCtrl;
+  late TextEditingController _billNoCtrl, _truckNoCtrl, _driverNameCtrl, _licNoCtrl, _rateCtrl, _qtyCtrl, _nosCtrl, _labourCtrl;
+  late TextEditingController _purNameCtrl, _purAdd1Ctrl, _purAdd2Ctrl, _gstinCtrl, _particularsCtrl, _hsnCtrl, _sgstCtrl, _cgstCtrl, _igstCtrl;
+  late TextEditingController _compNameCtrl, _compBankCtrl, _compAccCtrl, _compIfscCtrl;
   
-  late TextEditingController _particularsCtrl;
   List<TextEditingController> _extraParticularCtrls = [];
-
-  late TextEditingController _hsnCtrl;
-  late TextEditingController _sgstCtrl;
-  late TextEditingController _cgstCtrl;
-  late TextEditingController _igstCtrl;
-
-  late TextEditingController _compNameCtrl;
-  late TextEditingController _compBankCtrl;
-  late TextEditingController _compAccCtrl;
-  late TextEditingController _compIfscCtrl;
-
-  late double _amount;
-  late double _subTotal;
-  late double _gstAmount;
-  late double _totalAmount;
-
+  late double _amount, _subTotal, _gstAmount, _totalAmount;
   bool _hasUnsavedChanges = false;
 
   @override
   void initState() {
     super.initState();
+    final pSnap = widget.invoice.purchaserSnapshot ?? {};
+    final cSnap = widget.invoice.companySnapshot ?? {};
+
     _billNoCtrl = TextEditingController(text: widget.invoice.billNo);
     _truckNoCtrl = TextEditingController(text: widget.invoice.truckNo);
     _driverNameCtrl = TextEditingController(text: widget.invoice.driverName);
     _licNoCtrl = TextEditingController(text: widget.invoice.licNo);
-    _rateCtrl = TextEditingController(text: widget.invoice.rate.toString());
-    _qtyCtrl = TextEditingController(text: widget.invoice.quantity.toString());
+    
+    // Convert to String, but avoid showing extra zeros
+    _rateCtrl = TextEditingController(text: widget.invoice.rate.toString().replaceAll(RegExp(r"([.]*0+)(?!.*\d)"), ""));
+    _qtyCtrl = TextEditingController(text: widget.invoice.quantity.toString().replaceAll(RegExp(r"([.]*0+)(?!.*\d)"), ""));
     _nosCtrl = TextEditingController(text: widget.invoice.nos.toString()); 
-    _labourCtrl = TextEditingController(text: widget.invoice.labourCharge.toString());
+    _labourCtrl = TextEditingController(text: widget.invoice.labourCharge.toString().replaceAll(RegExp(r"([.]*0+)(?!.*\d)"), ""));
 
-    _purNameCtrl = TextEditingController(text: widget.purchaser.name);
-    _purAdd1Ctrl = TextEditingController(text: widget.purchaser.address1);
-    _purAdd2Ctrl = TextEditingController(text: widget.purchaser.address2);
-    _gstinCtrl = TextEditingController(text: widget.purchaser.gstin);
+    _purNameCtrl = TextEditingController(text: pSnap['name'] ?? widget.purchaser.name);
+    _purAdd1Ctrl = TextEditingController(text: pSnap['address1'] ?? widget.purchaser.address1);
+    _purAdd2Ctrl = TextEditingController(text: pSnap['address2'] ?? widget.purchaser.address2);
+    _gstinCtrl = TextEditingController(text: pSnap['gstin'] ?? widget.purchaser.gstin);
 
-    final parts = widget.purchaser.particulars.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-    if (parts.isNotEmpty) {
-      _particularsCtrl = TextEditingController(text: parts.first);
-      _extraParticularCtrls = parts.skip(1).map((e) => TextEditingController(text: e)).toList();
-    } else {
-      _particularsCtrl = TextEditingController(text: '');
-    }
+    final parts = (pSnap['particulars'] ?? widget.purchaser.particulars).toString().split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    _particularsCtrl = TextEditingController(text: parts.isNotEmpty ? parts.first : '');
+    _extraParticularCtrls = parts.skip(1).map((e) => TextEditingController(text: e)).toList();
 
-    _hsnCtrl = TextEditingController(text: widget.purchaser.hsnNo);
-    _sgstCtrl = TextEditingController(text: widget.purchaser.sgstRate.toString());
-    _cgstCtrl = TextEditingController(text: widget.purchaser.cgstRate.toString());
-    _igstCtrl = TextEditingController(text: widget.purchaser.igstRate.toString());
+    _hsnCtrl = TextEditingController(text: pSnap['hsnNo'] ?? widget.purchaser.hsnNo);
+    _sgstCtrl = TextEditingController(text: (pSnap['sgstRate'] ?? widget.purchaser.sgstRate).toString());
+    _cgstCtrl = TextEditingController(text: (pSnap['cgstRate'] ?? widget.purchaser.cgstRate).toString());
+    _igstCtrl = TextEditingController(text: (pSnap['igstRate'] ?? widget.purchaser.igstRate).toString());
 
-    _compNameCtrl = TextEditingController(text: widget.company.name);
-    _compBankCtrl = TextEditingController(text: widget.company.bankName);
-    _compAccCtrl = TextEditingController(text: widget.company.accountNumber);
-    _compIfscCtrl = TextEditingController(text: widget.company.ifscCode);
+    _compNameCtrl = TextEditingController(text: cSnap['name'] ?? widget.company.name);
+    _compBankCtrl = TextEditingController(text: cSnap['bankName'] ?? widget.company.bankName);
+    _compAccCtrl = TextEditingController(text: cSnap['accountNumber'] ?? widget.company.accountNumber);
+    _compIfscCtrl = TextEditingController(text: cSnap['ifscCode'] ?? widget.company.ifscCode);
 
     _amount = widget.invoice.amount;
     _subTotal = widget.invoice.subTotal;
@@ -117,12 +90,8 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     _purAdd1Ctrl.dispose();
     _purAdd2Ctrl.dispose();
     _gstinCtrl.dispose();
-    
     _particularsCtrl.dispose();
-    for (var ctrl in _extraParticularCtrls) {
-      ctrl.dispose();
-    }
-
+    for (var ctrl in _extraParticularCtrls) { ctrl.dispose(); }
     _hsnCtrl.dispose();
     _sgstCtrl.dispose();
     _cgstCtrl.dispose();
@@ -137,29 +106,41 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
   void _recalculate() {
     setState(() {
       _hasUnsavedChanges = true;
-
       double rate = double.tryParse(_rateCtrl.text) ?? 0.0;
       double qty = double.tryParse(_qtyCtrl.text) ?? 0.0;
       double labour = double.tryParse(_labourCtrl.text) ?? 0.0;
-      
       double sgst = double.tryParse(_sgstCtrl.text) ?? 0.0;
       double cgst = double.tryParse(_cgstCtrl.text) ?? 0.0;
       double igst = double.tryParse(_igstCtrl.text) ?? 0.0;
 
-      _amount = (rate * qty).roundToDouble();
-      _subTotal = (_amount + labour).roundToDouble();
-      _gstAmount = (_subTotal * ((sgst + cgst + igst) / 100)).roundToDouble();
-      _totalAmount = (_subTotal + _gstAmount).roundToDouble();
+      // 🔥 EXACT MATH: Removed .roundToDouble()
+      _amount = (rate * qty);
+      _subTotal = (_amount + labour);
+      _gstAmount = (_subTotal * ((sgst + cgst + igst) / 100));
+      _totalAmount = (_subTotal + _gstAmount);
     });
   }
 
   Map<String, dynamic> _getCurrentStateData() {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final combinedParticulars = [_particularsCtrl.text.trim(), ..._extraParticularCtrls.map((c) => c.text.trim())].where((e) => e.isNotEmpty).join(', ');
 
-    final combinedParticulars = [
-      _particularsCtrl.text.trim(),
-      ..._extraParticularCtrls.map((c) => c.text.trim())
-    ].where((e) => e.isNotEmpty).join(', ');
+    final pDelta = <String, dynamic>{};
+    if (_purNameCtrl.text.trim() != widget.purchaser.name) pDelta['name'] = _purNameCtrl.text.trim();
+    if (_purAdd1Ctrl.text.trim() != widget.purchaser.address1) pDelta['address1'] = _purAdd1Ctrl.text.trim();
+    if (_purAdd2Ctrl.text.trim() != widget.purchaser.address2) pDelta['address2'] = _purAdd2Ctrl.text.trim();
+    if (_gstinCtrl.text.trim() != widget.purchaser.gstin) pDelta['gstin'] = _gstinCtrl.text.trim();
+    if (combinedParticulars != widget.purchaser.particulars) pDelta['particulars'] = combinedParticulars;
+    if (_hsnCtrl.text.trim() != widget.purchaser.hsnNo) pDelta['hsnNo'] = _hsnCtrl.text.trim();
+    if ((double.tryParse(_sgstCtrl.text) ?? 0) != widget.purchaser.sgstRate) pDelta['sgstRate'] = double.tryParse(_sgstCtrl.text);
+    if ((double.tryParse(_cgstCtrl.text) ?? 0) != widget.purchaser.cgstRate) pDelta['cgstRate'] = double.tryParse(_cgstCtrl.text);
+    if ((double.tryParse(_igstCtrl.text) ?? 0) != widget.purchaser.igstRate) pDelta['igstRate'] = double.tryParse(_igstCtrl.text);
+
+    final cDelta = <String, dynamic>{};
+    if (_compNameCtrl.text.trim() != widget.company.name) cDelta['name'] = _compNameCtrl.text.trim();
+    if (_compBankCtrl.text.trim() != widget.company.bankName) cDelta['bankName'] = _compBankCtrl.text.trim();
+    if (_compAccCtrl.text.trim() != widget.company.accountNumber) cDelta['accountNumber'] = _compAccCtrl.text.trim();
+    if (_compIfscCtrl.text.trim() != widget.company.ifscCode) cDelta['ifscCode'] = _compIfscCtrl.text.trim();
 
     final tempInvoice = Invoice(
       id: widget.invoice.id, userId: widget.invoice.userId, companyId: widget.company.id, type: widget.invoice.type,
@@ -169,52 +150,31 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
       rate: double.tryParse(_rateCtrl.text) ?? 0.0, amount: _amount, labourCharge: double.tryParse(_labourCtrl.text) ?? 0.0,
       subTotal: _subTotal, gstAmount: _gstAmount, totalAmount: _totalAmount,
       lastUpdated: timestamp, isDeleted: widget.invoice.isDeleted,
+      purchaserSnapshot: pDelta.isNotEmpty ? pDelta : null,
+      companySnapshot: cDelta.isNotEmpty ? cDelta : null,
     );
 
-    final tempPurchaser = Purchaser(
-      id: widget.purchaser.id, userId: widget.purchaser.userId, name: _purNameCtrl.text.trim(), address1: _purAdd1Ctrl.text.trim(),
-      address2: _purAdd2Ctrl.text.trim(), particulars: combinedParticulars, gstin: _gstinCtrl.text.trim(),
-      hsnNo: _hsnCtrl.text.trim(), sgstRate: double.tryParse(_sgstCtrl.text) ?? 0.0, cgstRate: double.tryParse(_cgstCtrl.text) ?? 0.0,
-      igstRate: double.tryParse(_igstCtrl.text) ?? 0.0, lastUpdated: timestamp, isDeleted: widget.purchaser.isDeleted,
-    );
-
-    final tempCompany = Company(
-      id: widget.company.id, userId: widget.company.userId, name: _compNameCtrl.text.trim(), address1: widget.company.address1,
-      address2: widget.company.address2, mobileNumber: widget.company.mobileNumber, bankName: _compBankCtrl.text.trim(),
-      accountNumber: _compAccCtrl.text.trim(), ifscCode: _compIfscCtrl.text.trim(), pin: widget.company.pin, gstin: widget.company.gstin,
-      lastUpdated: timestamp, isDeleted: widget.company.isDeleted,
-    );
-
-    return { 'invoice': tempInvoice, 'company': tempCompany, 'purchaser': tempPurchaser };
+    return { 'invoice': tempInvoice, 'company': widget.company, 'purchaser': widget.purchaser };
   }
 
   Future<void> _confirmAndSave() async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Save Changes?', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: const Text('Are you sure you want to permanently save these changes to the invoice and database?'),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Save Changes?'),
+        content: const Text('Updates will save to this bill. Master records remain unchanged.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(ctx, true), 
-            child: const Text('Yes, Save')
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Yes, Save')),
         ]
       )
     );
     
     if (confirm == true) {
       final data = _getCurrentStateData();
-      
       await ref.read(invoiceProvider.notifier).updateInvoice(data['invoice']);
-      await ref.read(purchaserProvider.notifier).updatePurchaser(data['purchaser']);
-      await ref.read(companyProvider.notifier).updateCompany(data['company']);
-      
       setState(() => _hasUnsavedChanges = false); 
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('All Updates Saved!'), backgroundColor: Colors.green));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invoice Updated!')));
     }
   }
 
@@ -316,9 +276,10 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    double sgstAmt = (_subTotal * (double.tryParse(_sgstCtrl.text) ?? 0) / 100).roundToDouble();
-    double cgstAmt = (_subTotal * (double.tryParse(_cgstCtrl.text) ?? 0) / 100).roundToDouble();
-    double igstAmt = (_subTotal * (double.tryParse(_igstCtrl.text) ?? 0) / 100).roundToDouble();
+    // 🔥 EXACT MATH: Removed .roundToDouble() for live UI calculations
+    double sgstAmt = (_subTotal * (double.tryParse(_sgstCtrl.text) ?? 0) / 100);
+    double cgstAmt = (_subTotal * (double.tryParse(_cgstCtrl.text) ?? 0) / 100);
+    double igstAmt = (_subTotal * (double.tryParse(_igstCtrl.text) ?? 0) / 100);
 
     return PopScope(
       canPop: !_hasUnsavedChanges,
@@ -388,7 +349,8 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
                         _editableCell(_nosCtrl, isNumber: true, weight: FontWeight.bold),
                         _editableCell(_qtyCtrl, isNumber: true, weight: FontWeight.bold),
                         _editableCell(_rateCtrl, isNumber: true, weight: FontWeight.bold),
-                        _tableCell(_amount.toStringAsFixed(0), isHeader: true),
+                        // Display with 2 decimals to match exact underlying math
+                        _tableCell(_amount.toStringAsFixed(2), isHeader: true),
                       ]
                     ),
                     TableRow(
@@ -407,7 +369,7 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
                   columnWidths: const {0: FlexColumnWidth(9.5), 1: FlexColumnWidth(2.0)},
                   children: [
                     TableRow(
-                      children: [_tableCell('SUB TOTAL', isHeader: true, align: TextAlign.right), _tableCell(_subTotal.toStringAsFixed(0), isHeader: true)]
+                      children: [_tableCell('SUB TOTAL', isHeader: true, align: TextAlign.right), _tableCell(_subTotal.toStringAsFixed(2), isHeader: true)]
                     )
                   ]
                 ),
@@ -424,20 +386,20 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
                       decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.black12))),
                       children: [
                         _tableCell('', vPad: 2), _tableCell('SGST', isHeader: true, vPad: 2), 
-                        _editableCell(_sgstCtrl, isNumber: true, weight: FontWeight.bold, vPad: 2), _tableCell(sgstAmt.toStringAsFixed(0), isHeader: true, vPad: 2)
+                        _editableCell(_sgstCtrl, isNumber: true, weight: FontWeight.bold, vPad: 2), _tableCell(sgstAmt.toStringAsFixed(2), isHeader: true, vPad: 2)
                       ]
                     ),
                     TableRow(
                       decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.black12))),
                       children: [
                         _tableCell('', vPad: 2), _tableCell('CGST', isHeader: true, vPad: 2), 
-                        _editableCell(_cgstCtrl, isNumber: true, weight: FontWeight.bold, vPad: 2), _tableCell(cgstAmt.toStringAsFixed(0), isHeader: true, vPad: 2)
+                        _editableCell(_cgstCtrl, isNumber: true, weight: FontWeight.bold, vPad: 2), _tableCell(cgstAmt.toStringAsFixed(2), isHeader: true, vPad: 2)
                       ]
                     ),
                     TableRow(
                       children: [
                         _tableCell('', vPad: 2), _tableCell('IGST', isHeader: true, vPad: 2), 
-                        _editableCell(_igstCtrl, isNumber: true, weight: FontWeight.bold, vPad: 2), _tableCell(igstAmt.toStringAsFixed(0), isHeader: true, vPad: 2)
+                        _editableCell(_igstCtrl, isNumber: true, weight: FontWeight.bold, vPad: 2), _tableCell(igstAmt.toStringAsFixed(2), isHeader: true, vPad: 2)
                       ]
                     ),
                   ]
@@ -451,7 +413,7 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
                     TableRow(
                       children: [
                         const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('TOTAL AMOUNT', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue))),
-                        Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(_totalAmount.toStringAsFixed(0), textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue))),
+                        Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(_totalAmount.toStringAsFixed(2), textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue))),
                       ]
                     )
                   ]
@@ -592,7 +554,6 @@ class _EditableInvoiceScreenState extends ConsumerState<EditableInvoiceScreen> {
     );
   }
 }
-
 // --- CUSTOM PREVIEW SCREEN WIDGET ---
 class InvoicePreviewScreen extends StatelessWidget {
   final Invoice invoice;
